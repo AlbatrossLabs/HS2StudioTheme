@@ -10,6 +10,8 @@ namespace HS2StudioTheme
     {
         /// <summary>A row in one of the lists the main menu opens: clear until hovered or selected.</summary>
         Row,
+        /// <summary>A floating tool button (plugins' left toolbar): a small glass square with a line icon.</summary>
+        Tool,
         /// <summary>One of the four main menu buttons: icon with a label underneath.</summary>
         Tile,
         /// <summary>An ordinary push button in a settings panel: a soft filled capsule, centred label or icon.</summary>
@@ -30,11 +32,8 @@ namespace HS2StudioTheme
     /// <para>The state is serialised so that when another plugin copies a themed button (Instantiate),
     /// the copy knows Studio's original look and adopts itself instead of showing the template's text.</para>
     /// </summary>
-    internal class ThemedButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+    internal class ThemedButton : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, IColorHook
     {
-        /// <summary>Themed images, so the colour hook can find them.</summary>
-        public static readonly Dictionary<Graphic, ThemedButton> Registry = new Dictionary<Graphic, ThemedButton>();
-
         internal const string OwnPrefix = "Theme ";
 
         [SerializeField] private bool _themed;
@@ -56,24 +55,77 @@ namespace HS2StudioTheme
         [SerializeField] private Image _icon;
         [SerializeField] private Sprite _themeSprite;   // what the image should show; put back if something swaps it
         [SerializeField] private int _toggleIndex = -1;
+        [SerializeField] private bool _baked;          // label/icon come from Studio's picture (BakedArt); follow its swaps
 
         /// <summary>Text for the hover tooltip, if any.</summary>
         [NonSerialized] public Func<string> Tooltip;
         /// <summary>Extra "on" state the game shows some other way (a playing indicator, a repeat sprite).</summary>
         [NonSerialized] public Func<bool> ActiveWhen;
+        /// <summary>Colour for the icon when not selected (Delete's red); null = the usual white.</summary>
+        [NonSerialized] public Color? IconTint;
         [NonSerialized] private bool _activeExtra;
 
         /// <summary>The picture the game last gave this button (kept while the theme draws its own).</summary>
         public Sprite GameSprite { get { return _origSprite; } }
 
         private bool Sel { get { return _selected || _activeExtra; } }
+
+        /// <summary>Selected (by Studio's green or an extra state).</summary>
+        public bool IsSelected { get { return Sel; } }
+
+        /// <summary>What the button currently says.</summary>
+        public string LabelText
+        {
+            get
+            {
+                if (_label != null) return _label.text;
+                if (_sourceInPlace && _source != null) return Labels.Plain(((Text)_source).text);
+                return "";
+            }
+        }
+
+        [NonSerialized] private bool _muted;
+        [NonSerialized] private Image _chevron;
+
+        /// <summary>
+        /// Finder-style: a selection in a column to the left of the one you're working in shows grey
+        /// instead of the accent colour.
+        /// </summary>
+        public void SetMuted(bool muted)
+        {
+            if (muted == _muted) return;
+            _muted = muted;
+            _dirty = true;
+        }
+
+        /// <summary>A chevron at the right end: this row opens another column.</summary>
+        public void ShowChevron()
+        {
+            if (_chevron != null || _removed) return;
+            var go = NewChild("Chevron");
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = new Vector2(1f, 0.5f);
+            rt.pivot = new Vector2(1f, 0.5f);
+            rt.anchoredPosition = new Vector2(-4f, 0f);
+            rt.sizeDelta = new Vector2(10f, 10f);
+            _chevron = go.AddComponent<Image>();
+            _chevron.sprite = Sprites.Icon("chevron_right");
+            _chevron.preserveAspect = true;
+            _chevron.raycastTarget = false;
+            if (_label != null)
+            {
+                var lrt = (RectTransform)_label.transform;
+                lrt.offsetMax = new Vector2(-16f, lrt.offsetMax.y);
+            }
+            _dirty = true;
+        }
         [NonSerialized] private bool _toggleOn;
         [NonSerialized] private float _nextScan;
         [NonSerialized] private readonly List<KeyValuePair<Graphic, Color>> _hiddenExtras = new List<KeyValuePair<Graphic, Color>>();
 
         [NonSerialized] private bool _live;
         [NonSerialized] private string _lastText;
-        [NonSerialized] private bool _hover, _pressed, _selected, _writing, _dirty, _removed, _lastInteractable;
+        [NonSerialized] private bool _hover, _pressed, _selected, _writing, _dirty, _removed, _lastInteractable, _gameYellow;
 
         public bool Removed { get { return _removed; } }
 
@@ -105,6 +157,7 @@ namespace HS2StudioTheme
         {
             // A copy of a themed button made by Instantiate: take over with the template's originals.
             if (_themed && !_live) Adopt();
+            if (_baked) FollowBaked(_origSprite);
         }
 
         private void Adopt()
@@ -116,7 +169,7 @@ namespace HS2StudioTheme
             _lastText = null;
             _lastInteractable = _button.IsInteractable();
             if (_kind == ButtonKind.Slot && _label != null) _label.text = SlotNumber();
-            Registry[_image] = this;
+            ColorHooks.Registry[_image] = this;
             _dirty = true;
         }
 
@@ -140,12 +193,12 @@ namespace HS2StudioTheme
             button.transition = Selectable.Transition.None;
             image.canvasRenderer.SetColor(Color.white);
 
-            _themeSprite = kind == ButtonKind.Tile ? Sprites.Tile : Sprites.Row;
+            _themeSprite = kind == ButtonKind.Tile ? Sprites.Tile : kind == ButtonKind.Tool ? Sprites.Panel : Sprites.Row;
             image.sprite = _themeSprite;
             image.type = Image.Type.Sliced;
             image.fillCenter = true;
             image.preserveAspect = false;
-            Registry[image] = this;
+            ColorHooks.Registry[image] = this;
 
             var iconSprite = string.IsNullOrEmpty(iconKey) ? null : Sprites.Icon(iconKey);
 
@@ -192,7 +245,7 @@ namespace HS2StudioTheme
             }
             else
             {
-                _source = FindSourceLabel();
+                _source = kind == ButtonKind.Tool ? null : FindSourceLabel();
                 if (_source is Text)
                 {
                     // Legacy text (Studio's list nodes, with their scrolling-name effect): restyle it in place.
@@ -213,6 +266,13 @@ namespace HS2StudioTheme
                         _label = MakeLabel(Vector2.zero, Vector2.one, new Vector2(4f, 0f), new Vector2(-4f, 0f),
                             TextAnchor.MiddleCenter, 12, 8);
                     MirrorText();
+                }
+                else if (!string.IsNullOrEmpty(fixedLabel))
+                {
+                    // Studio's text is painted into the picture: write it out instead.
+                    _label = MakeLabel(Vector2.zero, Vector2.one, new Vector2(3f, 0f), new Vector2(-3f, 0f),
+                        TextAnchor.MiddleCenter, 12, 7);
+                    _label.text = fixedLabel;
                 }
                 else if (iconSprite != null)
                 {
@@ -235,6 +295,8 @@ namespace HS2StudioTheme
         {
             if (_writing || _removed) return value;
             _gameColor = value;
+            bool yellow = value.r > 0.9f && value.g > 0.9f && value.b < 0.2f;   // Timeline: "this scene has Timeline data"
+            if (yellow != _gameYellow) { _gameYellow = yellow; _dirty = true; }
             bool selected = Palette.IsGameSelected(value);
             if (selected != _selected)
             {
@@ -264,6 +326,25 @@ namespace HS2StudioTheme
             string text = null;
             try { text = Tooltip(); } catch { }
             if (!string.IsNullOrEmpty(text)) TooltipView.Show((RectTransform)transform, text);
+        }
+
+        /// <summary>Button whose label or icon Studio paints into its picture: keep following the picture.</summary>
+        public void MarkBaked()
+        {
+            _baked = true;
+            FollowBaked(_origSprite);
+        }
+
+        private string _bakedTip;
+
+        private void FollowBaked(Sprite sprite)
+        {
+            BakedArt.Button b;
+            if (!BakedArt.TryButton(sprite, out b)) return;
+            if (b.Label != null && _label != null) _label.text = b.Label;
+            if (b.Icon != null && _icon != null) _icon.sprite = Sprites.Icon(b.Icon);
+            _bakedTip = b.Tooltip;
+            if (Tooltip == null && b.Tooltip != null) Tooltip = () => _bakedTip;
         }
 
         private bool ToggleState()
@@ -315,6 +396,7 @@ namespace HS2StudioTheme
                 _origSprite = _image.sprite;
                 _image.sprite = _themeSprite;
                 _image.type = Image.Type.Sliced;
+                if (_baked) FollowBaked(_origSprite);
             }
 
             if (_kind == ButtonKind.ViewToggle)
@@ -361,7 +443,8 @@ namespace HS2StudioTheme
             bool enabled = _button != null && _button.IsInteractable();
             Color fg;
             var slot = _kind == ButtonKind.Slot ? SlotStateOf(_gameColor) : SlotState.Saved;
-            if (Sel) fg = Palette.OnAccent();
+            if (Sel && _muted) fg = Color.white;
+            else if (Sel) fg = Palette.OnAccent();
             else if (_kind == ButtonKind.Slot && slot == SlotState.Empty) fg = Palette.White(0.35f);
             else if (_kind == ButtonKind.ViewToggle) fg = _toggleOn ? Color.white : Palette.White(0.45f);
             else if (!enabled) fg = Palette.White(Palette.DisabledAlpha);
@@ -379,9 +462,13 @@ namespace HS2StudioTheme
                 legacy.color = fg;
                 legacy.font = Sel ? Fonts.Semibold : Fonts.Regular;
             }
+            if (_chevron != null)
+                _chevron.color = Sel && !_muted ? Palette.OnAccent() : Palette.White(Sel ? 0.9f : 0.45f);
             if (_icon != null)
             {
                 if (_kind == ButtonKind.ViewToggle) _icon.color = Palette.White(_toggleOn ? 1f : 0.45f);
+                else if (!Sel && _gameYellow && enabled) _icon.color = Palette.Hex("FFD60A");
+                else if (!Sel && IconTint.HasValue && enabled) _icon.color = IconTint.Value;
                 else _icon.color = Sel ? Palette.OnAccent() : Palette.White(enabled ? 0.9f : Palette.DisabledAlpha);
             }
         }
@@ -397,10 +484,28 @@ namespace HS2StudioTheme
             return SlotState.Saved;
         }
 
+        /// <summary>
+        /// Some of Studio's list rows are also Masks (to clip their scrolling names). Unity's mask
+        /// drops every pixel of a fully transparent graphic, which would hide the row's text, so a
+        /// masked row is never fully transparent (2/255 is invisible but still masks).
+        /// </summary>
         private Color Background()
         {
+            var c = BackgroundRaw();
+            if (c.a < 0.008f && GetComponent<Mask>() != null) c.a = 0.008f;
+            return c;
+        }
+
+        private Color BackgroundRaw()
+        {
             bool enabled = _button != null && _button.IsInteractable();
-            if (Sel) return Palette.Accent;
+            if (Sel) return _muted ? Palette.White(0.16f) : Palette.Accent;
+            if (_kind == ButtonKind.Tool)
+            {
+                // Glass (the sprite carries the tint): a shade darker at rest, full on hover, darker pressed.
+                float v = _pressed && enabled ? 0.75f : _hover && enabled ? 1f : 0.88f;
+                return new Color(v, v, v, 1f);
+            }
             float rest = _kind == ButtonKind.Push ? Palette.PushAlpha : 0f;
             if (_kind == ButtonKind.Tab) rest = 0.14f;
             if (_kind == ButtonKind.Slot)
@@ -510,7 +615,7 @@ namespace HS2StudioTheme
 
             if (_image != null)
             {
-                Registry.Remove(_image);
+                ColorHooks.Remove(_image, this);
                 _image.sprite = _origSprite;
                 _image.type = _origType;
                 _image.preserveAspect = _origPreserveAspect;
@@ -524,16 +629,13 @@ namespace HS2StudioTheme
             TooltipView.Hide(transform);
             if (_label != null) Destroy(_label.gameObject);
             if (_icon != null) Destroy(_icon.gameObject);
+            if (_chevron != null) Destroy(_chevron.gameObject);
             Destroy(this);
         }
 
         private void OnDestroy()
         {
-            if (_image != null)
-            {
-                ThemedButton registered;
-                if (Registry.TryGetValue(_image, out registered) && registered == this) Registry.Remove(_image);
-            }
+            ColorHooks.Remove(_image, this);
         }
     }
 }

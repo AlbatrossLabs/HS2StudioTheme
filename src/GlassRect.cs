@@ -39,6 +39,13 @@ namespace HS2StudioTheme
             }
         }
 
+        /// <summary>The bottom edge of the drawn glass, in world space.</summary>
+        public float WorldBottom()
+        {
+            var r = Bounds();
+            return rectTransform.TransformPoint(new Vector3(r.xMin, r.yMin - padding, 0f)).y;
+        }
+
         /// <summary>Union of the tracked rects in this object's local space (or its own rect).</summary>
         private Rect Bounds()
         {

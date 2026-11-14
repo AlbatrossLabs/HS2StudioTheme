@@ -20,10 +20,10 @@ namespace HS2StudioTheme
         [HarmonyPrefix, HarmonyPatch(typeof(Graphic), nameof(Graphic.color), MethodType.Setter)]
         private static void GraphicColorSet(Graphic __instance, ref Color value)
         {
-            if (ThemedButton.Registry.Count == 0) return;
-            ThemedButton themed;
-            if (ThemedButton.Registry.TryGetValue(__instance, out themed) && themed != null)
-                value = themed.InterceptGameColor(value);
+            if (ColorHooks.Registry.Count == 0) return;
+            IColorHook hook;
+            if (ColorHooks.Registry.TryGetValue(__instance, out hook) && hook != null)
+                value = hook.InterceptGameColor(value);
         }
     }
 }

@@ -28,7 +28,10 @@ namespace HS2StudioTheme
         public static Sprite Tile { get { return Get("tile", () => Rounded(Palette.TileRadius, Color.white, Color.clear)); } }
 
         /// <summary>Thin scroll thumb centred in Studio's 20-unit-wide scrollbar.</summary>
-        public static Sprite ScrollThumb { get { return Get("thumb", ScrollThumbSprite); } }
+        public static Sprite ScrollThumb { get { return Get("thumb", () => ScrollThumbSprite(20)); } }
+
+        /// <summary>The same thumb for an 8-unit-wide scroll bar (the narrowed animation columns).</summary>
+        public static Sprite ScrollThumbNarrow { get { return Get("thumb8", () => ScrollThumbSprite(8)); } }
 
         /// <summary>Rounded text field / dropdown: faint fill, hairline border.</summary>
         public static Sprite Field { get { return Get("field", () => Rounded(Palette.RowRadius, Palette.White(Palette.FieldAlpha), Palette.White(Palette.BorderAlpha))); } }
@@ -50,6 +53,79 @@ namespace HS2StudioTheme
         public static Sprite Icon(string key)
         {
             return Get("icon_" + key, () => LoadIcon(key));
+        }
+
+        /// <summary>An icon drawn at <paramref name="fraction"/> of its square, so it can fill a bigger button image.</summary>
+        public static Sprite IconPadded(string key, float fraction)
+        {
+            return Get("icon_" + key + "_" + fraction, () =>
+            {
+                var src = Icon(key);
+                if (src == null) return null;
+                const int n = 64;
+                var tex = NewTexture(n, n);
+                var px = new Color[n * n];
+                float inner = n * fraction, off = (n - inner) / 2f;
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        float u = (x + 0.5f - off) / inner, v = (y + 0.5f - off) / inner;
+                        px[y * n + x] = u < 0f || u > 1f || v < 0f || v > 1f ? Color.clear
+                            : new Color(1f, 1f, 1f, src.texture.GetPixelBilinear(u, v).a);
+                    }
+                tex.SetPixels(px);
+                tex.Apply(false, true);
+                return MakeSprite(tex, Vector4.zero, 100f);
+            });
+        }
+
+        /// <summary>Horizontal scroll thumb: a 4-unit-high pill centred in a 20-unit-high bar.</summary>
+        public static Sprite ScrollThumbH { get { return Get("thumbH", ScrollThumbHSprite); } }
+
+        /// <summary>Three short diagonal lines for a window's bottom-left resize corner.</summary>
+        public static Sprite ResizeGrip { get { return Get("grip", ResizeGripSprite); } }
+
+        private static Sprite ScrollThumbHSprite()
+        {
+            // ScrollThumbSprite(20) turned on its side.
+            const int w = 12, h = 20;
+            const float pillHalf = 2f, radius = 2f;
+            var tex = NewTexture(w, h);
+            var px = new Color[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                {
+                    float qy = Mathf.Abs(y + 0.5f - h / 2f) - (pillHalf - radius);
+                    float qx = Mathf.Abs(x + 0.5f - w / 2f) - (w / 2f - 1f - radius);
+                    float outside = new Vector2(Mathf.Max(qx, 0f), Mathf.Max(qy, 0f)).magnitude;
+                    float d = outside + Mathf.Min(Mathf.Max(qx, qy), 0f) - radius;
+                    px[y * w + x] = new Color(1f, 1f, 1f, Mathf.Clamp01(0.5f - d));
+                }
+            tex.SetPixels(px);
+            tex.Apply(false, true);
+            return MakeSprite(tex, new Vector4(5, h / 2, 5, h / 2), 100f);
+        }
+
+        private static Sprite ResizeGripSprite()
+        {
+            const int n = 24;   // 12 units at 2 px per unit
+            var tex = NewTexture(n, n);
+            var px = new Color[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    // Lines across the bottom-left corner, far enough in to clear the window's rounded corner.
+                    float a = 0f;
+                    foreach (var c in new[] { 18f, 24f, 30f })
+                    {
+                        float d = Mathf.Abs((x + 0.5f) + (y + 0.5f) - c) / 1.4142f;   // distance to x + y = c
+                        a = Mathf.Max(a, Mathf.Clamp01(1.6f - d));
+                    }
+                    px[y * n + x] = new Color(1f, 1f, 1f, a);
+                }
+            tex.SetPixels(px);
+            tex.Apply(false, true);
+            return MakeSprite(tex, Vector4.zero, 200f);
         }
 
         /// <summary>Forget generated sprites (after the opacity changes). Old ones are destroyed.</summary>
@@ -111,9 +187,9 @@ namespace HS2StudioTheme
 
         /// <summary>A 4-unit-wide pill centred in a 20-unit-wide texture. Left and right borders take
         /// the whole width, so the thumb never stretches sideways.</summary>
-        private static Sprite ScrollThumbSprite()
+        private static Sprite ScrollThumbSprite(int w)
         {
-            const int w = 20, h = 12;
+            const int h = 12;
             const float pillHalf = 2f, radius = 2f;
             var tex = NewTexture(w, h);
             var px = new Color[w * h];
@@ -128,7 +204,7 @@ namespace HS2StudioTheme
                 }
             tex.SetPixels(px);
             tex.Apply(false, true);
-            return MakeSprite(tex, new Vector4(10, 5, 10, 5), 100f);
+            return MakeSprite(tex, new Vector4(w / 2, 5, w / 2, 5), 100f);
         }
 
         private static Sprite TrackSprite()

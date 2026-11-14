@@ -19,7 +19,7 @@ namespace HS2StudioTheme
     {
         public const string GUID = "com.albatrosslabs.hs2.studiotheme";
         public const string PluginName = "Studio Theme";
-        public const string Version = "0.4.0";
+        public const string Version = "0.8.1";
 
         internal static StudioThemePlugin Instance;
         internal static ManualLogSource Log;
@@ -29,6 +29,7 @@ namespace HS2StudioTheme
         internal static ConfigEntry<float> GlassOpacity;
         internal static ConfigEntry<bool> MenuLabels;
         internal static ConfigEntry<string> FontName;
+        internal static ConfigEntry<Vector2> WorkspaceSize;
 
         private Studio.RootButtonCtrl _root;
         private readonly MainMenuTheme _theme = new MainMenuTheme();
@@ -49,6 +50,9 @@ namespace HS2StudioTheme
                 "Show Add / Anim / Sound / System under the main menu icons.");
             FontName = Config.Bind("Look", "Font", "Segoe UI",
                 "A font installed in Windows. Nothing is bundled: Japanese text falls back to Yu Gothic UI or Meiryo.");
+
+            WorkspaceSize = Config.Bind("Layout", "Workspace size", Vector2.zero,
+                "Size of the workspace list, set by dragging its corner grip. 0, 0 = Studio's size.");
 
             Enabled.SettingChanged += (s, e) => Reapply();
             GlassOpacity.SettingChanged += (s, e) => { Sprites.Clear(); Reapply(); };

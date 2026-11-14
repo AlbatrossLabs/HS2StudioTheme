@@ -25,6 +25,27 @@ namespace HS2StudioTheme
         private Color _thumbColor;
 
         private readonly List<ThemedButton> _rows = new List<ThemedButton>();
+
+        private bool _chevronRows;
+
+        public List<ThemedButton> Rows { get { return _rows; } }
+
+        /// <summary>Rows in this list open another column: give them chevrons (now and as they appear).</summary>
+        public bool ChevronRows
+        {
+            get { return _chevronRows; }
+            set
+            {
+                _chevronRows = value;
+                if (value) foreach (var r in _rows) if (r != null) r.ShowChevron();
+            }
+        }
+
+        public ScrollRect Scroll { get { return _scroll; } }
+
+        private GlassRect _fitTo;
+        private Vector2 _origSize, _origBarSize;
+        private RectTransform _barRt;
         private int _lastCount = -1;
         private float _nextScan;
         private bool _removed;
@@ -32,6 +53,8 @@ namespace HS2StudioTheme
         public static ThemedPanel Attach(ScrollRect scroll)
         {
             if (scroll == null) return null;
+            foreach (var existing in scroll.GetComponents<ThemedPanel>())
+                if (!existing._removed) return null;
             var panel = scroll.gameObject.AddComponent<ThemedPanel>();
             panel.Init(scroll);
             return panel;
@@ -83,6 +106,37 @@ namespace HS2StudioTheme
             if (!_removed) Scan();
         }
 
+        /// <summary>
+        /// Make the list end where the main menu column's glass ends. The top stays put (the panels
+        /// a list opens line up with it); the scroll bar keeps Studio's 20-unit margins.
+        /// </summary>
+        public void FitBottomTo(GlassRect column)
+        {
+            _fitTo = column;
+            var rt = (RectTransform)transform;
+            _origSize = rt.sizeDelta;
+            var bar = _scroll.verticalScrollbar;
+            _barRt = bar != null ? (RectTransform)bar.transform : null;
+            if (_barRt != null) _origBarSize = _barRt.sizeDelta;
+        }
+
+        private void LateUpdate()
+        {
+            if (_removed || _fitTo == null) return;
+            var rt = (RectTransform)transform;
+            // Only for Studio's fixed-size lists (anchors together, pivot at the top).
+            if (rt.anchorMin.y != rt.anchorMax.y || rt.pivot.y != 1f) return;
+
+            float bottomLocal = rt.InverseTransformPoint(new Vector3(0f, _fitTo.WorldBottom(), 0f)).y;
+            float height = Mathf.Max(120f, -bottomLocal);
+            if (Mathf.Abs(rt.sizeDelta.y - height) > 0.5f)
+            {
+                rt.sizeDelta = new Vector2(rt.sizeDelta.x, height);
+                if (_barRt != null)
+                    _barRt.sizeDelta = new Vector2(_barRt.sizeDelta.x, height - (_origSize.y - _origBarSize.y));
+            }
+        }
+
         private void Update()
         {
             if (_removed || Time.unscaledTime < _nextScan) return;
@@ -103,6 +157,7 @@ namespace HS2StudioTheme
                 if (button == null) continue;
                 var row = ThemedButton.Attach(button, ButtonKind.Row, null, null);
                 if (row != null && !_rows.Contains(row)) _rows.Add(row);
+                if (row != null && _chevronRows) row.ShowChevron();
             }
         }
 
@@ -117,6 +172,12 @@ namespace HS2StudioTheme
             _removed = true;
             foreach (var row in _rows) if (row != null) row.Remove();
             _rows.Clear();
+
+            if (_fitTo != null)
+            {
+                ((RectTransform)transform).sizeDelta = _origSize;
+                if (_barRt != null) _barRt.sizeDelta = _origBarSize;
+            }
 
             if (_bg != null)
             {

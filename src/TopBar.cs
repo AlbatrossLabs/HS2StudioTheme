@@ -18,6 +18,31 @@ namespace HS2StudioTheme
 
         private const float ToggleW = 34f, ToggleH = 30f, Gap = 2f, Pad = 4f, Margin = 8f;
 
+        /// <summary>The six show/hide switches, once themed (the workspace lines up under them).</summary>
+        internal static readonly List<RectTransform> Toggles = new List<RectTransform>();
+
+        /// <summary>World-space corners of the switches' glass capsule, or false if there isn't one.</summary>
+        internal static bool CapsuleWorldRect(out Vector3 min, out Vector3 max)
+        {
+            min = new Vector3(float.MaxValue, float.MaxValue, 0f);
+            max = new Vector3(float.MinValue, float.MinValue, 0f);
+            var corners = new Vector3[4];
+            bool any = false;
+            foreach (var t in Toggles)
+            {
+                if (t == null) continue;
+                t.GetWorldCorners(corners);
+                min = Vector3.Min(min, corners[0]);
+                max = Vector3.Max(max, corners[2]);
+                any = true;
+            }
+            if (!any) return false;
+            float pad = Pad * Toggles[0].lossyScale.x;
+            min -= new Vector3(pad, pad, 0f);
+            max += new Vector3(pad, pad, 0f);
+            return true;
+        }
+
         public static void Apply(Undo undo)
         {
             var scene = Object.FindObjectOfType<StudioScene>();
@@ -30,7 +55,8 @@ namespace HS2StudioTheme
             if (draw == null) return;
             var drawT = Traverse.Create(draw);
 
-            var toggles = new List<RectTransform>();
+            var toggles = Toggles;
+            toggles.Clear();
             for (int i = 0; i < ImageFields.Length; i++)
             {
                 var image = drawT.Field(ImageFields[i]).GetValue<Image>();

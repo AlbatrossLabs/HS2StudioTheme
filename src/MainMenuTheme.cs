@@ -47,16 +47,23 @@ namespace HS2StudioTheme
                     columnButtons.Add((RectTransform)button.transform);
                 }
 
+                var list = FindList(opens, ListPaths[i]);
+                var listPanel = list != null ? ThemedPanel.Attach(list) : null;
+                if (listPanel != null) _panels.Add(listPanel);
+                else if (list == null) StudioThemePlugin.Log.LogWarning("List not found for " + Fields[i] + " (" + ListPaths[i] + ")");
+
+                // What each list opens.
                 if (Fields[i] == "system" && opens != null) StyleSystemPanels(opens.transform);
                 if (Fields[i] == "sound" && opens != null) SoundTheme.Apply(opens.transform, _undo);
-
-                var list = FindList(opens, ListPaths[i]);
-                if (list != null) _panels.Add(ThemedPanel.Attach(list));
-                else StudioThemePlugin.Log.LogWarning("List not found for " + Fields[i] + " (" + ListPaths[i] + ")");
+                if (Fields[i] == "manipulate" && opens != null) StyleAnimPanels(opens.transform);
+                if (Fields[i] == "add" && opens != null) StyleAddPanels(opens.transform, listPanel);
             }
 
             try { TopBar.Apply(_undo); }
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the top bar: " + e); }
+
+            try { WorkspaceTheme.Apply(_undo); }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the workspace: " + e); }
 
             // Glass behind the whole column, drawn by the column itself so no sibling is added.
             if (columnButtons.Count > 0)
@@ -71,6 +78,79 @@ namespace HS2StudioTheme
                     _backdrop.color = Color.white;
                 }
             }
+
+            // The lists end where the column's glass ends.
+            if (_backdrop != null)
+                foreach (var p in _panels) if (p != null) p.FitBottomTo(_backdrop);
+        }
+
+        /// <summary>
+        /// Everything Add opens: the girl and boy character lists (with card preview and Load /
+        /// Change character), the item group → category → item columns, and the map, light,
+        /// background and frame lists.
+        /// </summary>
+        private void StyleAddPanels(Transform add, ThemedPanel addList)
+        {
+            for (int i = 0; i < add.childCount; i++)
+            {
+                var t = add.GetChild(i);
+                if (t.name == "Scroll View Add Group") continue;
+                try { ControlStyler.StylePanel(t, _undo); }
+                catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style " + t.name + ": " + e); }
+            }
+
+            try
+            {
+                var columns = ColumnView.Attach(add.Find("02_Item"), addList,
+                    new[] { "Scroll View Group", "Scroll View Category", "Scroll View Item" }, new[] { "Group", "Category", "Item" });
+                if (columns != null) _undo.Add(columns.Remove);
+            }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't set up the item columns: " + e); }
+        }
+
+        /// <summary>
+        /// Everything Anim opens: the character panels (State, Kinematics, Animations, Voice, Outfit,
+        /// Joint), the item / light / folder / route / camera panels, and the floating windows that go
+        /// with them (animation controller, outfit panel, route controller).
+        /// </summary>
+        private void StyleAnimPanels(Transform manipulate)
+        {
+            var targets = new List<Transform>();
+            for (int i = 0; i < manipulate.childCount; i++) targets.Add(manipulate.GetChild(i));
+            var menu = manipulate.parent;
+            if (menu != null)
+                foreach (var name in new[] { "03_00_Anime Control", "02_01_Panel", "02_05_00_Route Control" })
+                {
+                    var t = menu.Find(name);
+                    if (t != null) targets.Add(t);
+                }
+            foreach (var t in targets)
+            {
+                try { ControlStyler.StylePanel(t, _undo); }
+                catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style " + t.name + ": " + e); }
+            }
+
+            // Kinematics' panels and Joint Adjustment: give the last row room at the bottom.
+            var chara = manipulate.Find("00_Chara");
+            if (chara != null)
+            {
+                foreach (var path in new[] { "02_Kinematic/00_FK", "02_Kinematic/01_IK", "02_Kinematic/02_LookAt",
+                    "02_Kinematic/03_Neck", "02_Kinematic/05_Etc", "02_Kinematic/06_Hand", "02_Kinematic/07_Pause", "06_Joint" })
+                {
+                    var fit = PanelFit.Attach(chara.Find(path) as RectTransform);
+                    if (fit != null) _undo.Add(fit.Remove);
+                }
+            }
+
+            // The animation picker as a column view.
+            try
+            {
+                var root = manipulate.Find("00_Chara/00_Root");
+                var columns = ColumnView.Attach(manipulate.Find("03_Anime"), root != null ? root.GetComponent<ThemedPanel>() : null,
+                    new[] { "Group Panel", "Category Panel", "Anime Panel" }, new[] { "Group", "Category", "Animation" });
+                if (columns != null) _undo.Add(columns.Remove);
+            }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't set up the animation columns: " + e); }
         }
 
         /// <summary>

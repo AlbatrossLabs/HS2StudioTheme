@@ -28,6 +28,8 @@ namespace HS2StudioTheme
         public static ThemedLabel Attach(TMPro.TMP_Text source, bool strong, int size, float alpha)
         {
             if (source == null) return null;
+            // Already hidden (by a themed button mirroring it, or by the game): nothing to show.
+            if (source.color.a <= 0f) return null;
             foreach (var existing in source.GetComponents<ThemedLabel>())
             {
                 if (existing._removed) continue;
@@ -106,6 +108,14 @@ namespace HS2StudioTheme
                 Hide();
             }
             if (_label.enabled != _source.enabled) _label.enabled = _source.enabled;
+        }
+
+        /// <summary>Start the text further from the left (the game's text object stays where it is).</summary>
+        public void Inset(float left)
+        {
+            if (_label == null || left <= 0f) return;
+            var rt = (RectTransform)_label.transform;
+            rt.offsetMin = new Vector2(left, rt.offsetMin.y);
         }
 
         public void Remove()

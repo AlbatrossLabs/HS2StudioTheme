@@ -12,13 +12,21 @@ namespace HS2StudioTheme
     /// </summary>
     internal static class ControlStyler
     {
-        /// <summary>Studio's "def" (reset to default) button sprites.</summary>
-        private static readonly HashSet<string> DefaultSprites = new HashSet<string> { "sp_sn_10_00_04", "sp_sn_20_00_01" };
+        private const string HeaderSprite = "sp_sn_31_00_10";
+        private static readonly HashSet<Transform> Headers = new HashSet<Transform>();
 
         public static void StylePanel(Transform root, Undo undo)
         {
             if (root == null) return;
             _root = root;
+            Headers.Clear();
+
+            // Studio's panel pictures, by name, before anything is swapped (some have text painted in).
+            var panelImages = new List<KeyValuePair<Image, Sprite>>();
+            foreach (var image in root.GetComponentsInChildren<Image>(true))
+                if (image.sprite != null && BakedArt.PanelSprites.Contains(image.sprite.name) && !InTemplate(image)
+                    && image.GetComponent<Button>() == null)
+                    panelImages.Add(new KeyValuePair<Image, Sprite>(image, image.sprite));
 
             // Panels: scrolling lists and plain backgrounds.
             foreach (var scroll in root.GetComponentsInChildren<ScrollRect>(true))
@@ -28,8 +36,25 @@ namespace HS2StudioTheme
                 if (panel != null) undo.Add(panel.Remove);
             }
             foreach (var image in root.GetComponentsInChildren<Image>(true))
-                if (image.name == "Image Background" && image.GetComponent<ThemedPanel>() == null)
+                if (image.name == "Image Background" && image.GetComponent<ThemedPanel>() == null && !InTemplate(image))
                     Swap(image, Sprites.Panel, Image.Type.Sliced, Color.white, undo);
+            foreach (var kv in panelImages)
+            {
+                var image = kv.Key;
+                if (image.GetComponent<ThemedPanel>() == null && image.sprite != Sprites.Panel)
+                    Swap(image, Sprites.Panel, Image.Type.Sliced, Color.white, undo);
+                BakedArt.Caption[] captions;
+                if (BakedArt.PanelCaptions.TryGetValue(kv.Value.name, out captions))
+                    AddCaptions(image, captions, kv.Value, undo);
+            }
+
+            // Arrow pictures Studio swaps to show a state (sort direction): line chevrons that follow.
+            foreach (var image in root.GetComponentsInChildren<Image>(true))
+            {
+                if (image.GetComponent<Button>() != null || InTemplate(image)) continue;
+                var follower = IconFollower.Attach(image);
+                if (follower != null) undo.Add(follower.Remove);
+            }
 
             var headerButtons = new HashSet<Button>();
             foreach (var image in root.GetComponentsInChildren<Image>(true))
@@ -57,21 +82,43 @@ namespace HS2StudioTheme
             // Labels last, so text inside themed buttons is already handled.
             foreach (var tmp in root.GetComponentsInChildren<TMPro.TMP_Text>(true))
             {
-                if (tmp.GetComponentInParent<ThemedButton>() != null || InTemplate(tmp)) continue;
-                bool header = tmp.transform.parent != null && IsHeader(tmp.transform.parent);
-                var label = ThemedLabel.Attach(tmp, header);
-                if (label != null) undo.Add(label.Remove);
+                if (InParent<ThemedButton>(tmp) != null || InTemplate(tmp)) continue;
+                bool header = tmp.transform.parent != null && Headers.Contains(tmp.transform.parent);
+                bool title = tmp.name.Contains("Title");
+                var label = ThemedLabel.Attach(tmp, header || title);
+                if (label != null)
+                {
+                    undo.Add(label.Remove);
+                    float gap = EdgeGap(tmp.rectTransform);
+                    if (gap < 8f && Labels.AnchorOf(tmp) == TextAnchor.MiddleLeft || gap < 8f && Labels.AnchorOf(tmp) == TextAnchor.UpperLeft)
+                        label.Inset(10f - gap);
+                }
             }
             foreach (var text in root.GetComponentsInChildren<Text>(true))
             {
                 if (text.name.StartsWith(ThemedButton.OwnPrefix)) continue;
-                if (text.GetComponentInParent<ThemedButton>() != null || InTemplate(text)) continue;
-                if (text.GetComponentInParent<InputField>() != null) continue;   // done by StyleInput
+                if (InParent<ThemedButton>(text) != null || InTemplate(text)) continue;
+                if (InParent<InputField>(text) != null) continue;   // done by StyleInput
                 StyleLegacyText(text, Palette.White(Palette.TextAlpha), undo);
+                InsetFromEdge(text, undo);
             }
         }
 
         private static Transform _root;
+
+        /// <summary>
+        /// Like GetComponentInParent, but also on inactive objects. (Unity 2018's version skips them, and
+        /// most of Studio's panels are inactive when the theme is applied.)
+        /// </summary>
+        internal static T InParent<T>(Component c) where T : Component
+        {
+            for (var t = c.transform; t != null; t = t.parent)
+            {
+                var found = t.GetComponent<T>();
+                if (found != null) return found;
+            }
+            return null;
+        }
 
         /// <summary>
         /// Hidden objects parked under a list for the game to copy (Logo's "node"). Left as they are,
@@ -80,8 +127,34 @@ namespace HS2StudioTheme
         private static bool InTemplate(Component c)
         {
             for (var t = c.transform; t != null && t != _root; t = t.parent)
-                if (!t.gameObject.activeSelf && t.parent != null && t.parent.GetComponent<ScrollRect>() != null)
-                    return true;
+            {
+                if (t.gameObject.activeSelf || t.parent == null) continue;
+                // Hidden children of a list are templates, except whole panels that happen to sit under
+                // a list object (Kinematics keeps FK / IK / Face... next to its own list).
+                if (t.parent.GetComponent<ScrollRect>() != null && !IsPanelPage(t)) return true;
+                // A hidden list node outside any list (Save pose's "Button"): also a template.
+                // (Hidden nodes inside a list's content are pooled rows, not templates.)
+                if (t.parent.GetComponent<LayoutGroup>() == null && IsListNode(t)) return true;
+            }
+            return false;
+        }
+
+        private static bool IsPanelPage(Transform t)
+        {
+            var image = t.GetComponent<Image>();
+            if (image != null && image.sprite != null && BakedArt.PanelSprites.Contains(image.sprite.name)) return true;
+            var rt = t as RectTransform;
+            return rt != null && rt.rect.height > 60f && t.childCount > 2 && t.GetComponent<Button>() == null;
+        }
+
+        private static bool IsListNode(Transform t)
+        {
+            foreach (var mb in t.GetComponents<MonoBehaviour>())
+            {
+                if (mb == null) continue;
+                var n = mb.GetType().Name;
+                if (n == "StudioNode" || n == "ListNode") return true;
+            }
             return false;
         }
 
@@ -89,15 +162,17 @@ namespace HS2StudioTheme
 
         private static bool IsHeader(Transform t)
         {
-            // Screen Effect / Option section headers: "Image Color Grading", "Image Camera"...
-            return t.name.StartsWith("Image ") && t.GetComponent<LayoutElement>() != null
-                && t.GetComponent<Image>() != null && t.GetComponentInChildren<TMPro.TMP_Text>(true) != null;
+            // Section headers (Screen Effect's "Image Color Grading", State's "Image Clothing Details"...)
+            // all use Studio's header bar picture.
+            var image = t.GetComponent<Image>();
+            return image != null && image.sprite != null && image.sprite.name == HeaderSprite;
         }
 
         private static void StyleHeader(Image image, HashSet<Button> headerButtons, Undo undo)
         {
             var t = image.transform;
-            if (!IsHeader(t) || image.GetComponent<ThemedPanel>() != null) return;
+            if (!IsHeader(t) || image.GetComponent<ThemedPanel>() != null || InTemplate(image)) return;
+            Headers.Add(t);
             Swap(image, Sprites.Row, Image.Type.Sliced, Palette.White(Palette.HeaderAlpha), undo);
 
             var button = t.GetComponentInChildren<Button>(true);
@@ -232,10 +307,18 @@ namespace HS2StudioTheme
                 var b = ThemedButton.Attach(button, ButtonKind.Push, null, null);
                 if (b != null) undo.Add(b.Remove);
             }
-            else if (DefaultSprites.Contains(sprite) || button.name.Contains("Default"))
+            else if (BakedArt.Buttons.ContainsKey(sprite))
+            {
+                // Studio's label or icon is painted into the picture: draw it ourselves, and follow the
+                // picture if Studio swaps it (expand/collapse arrows, repeat on/off).
+                var baked = BakedArt.Buttons[sprite];
+                var b = ThemedButton.Attach(button, ButtonKind.Push, baked.Icon, baked.Label);
+                if (b != null) { b.MarkBaked(); undo.Add(b.Remove); }
+            }
+            else if (button.name.Contains("Default"))
             {
                 var b = ThemedButton.Attach(button, ButtonKind.Push, "reset", null);
-                if (b != null) undo.Add(b.Remove);
+                if (b != null) { b.Tooltip = () => "Reset to default"; undo.Add(b.Remove); }
             }
             else if (IsSwatch(button))
             {
@@ -319,9 +402,84 @@ namespace HS2StudioTheme
 
         private static bool IsSwatch(Button button)
         {
+            if (button.image != null && button.image.sprite != null && button.image.sprite.name == "sp_sn_25_00_01") return true;
             if (button.name.Contains("Color")) return true;
             var parent = button.transform.parent;
             return parent != null && parent.name.Contains("Color") && button.name == "Button";
+        }
+
+        /// <summary>
+        /// How far a label starts from the left edge of the glass panel it sits on. Studio's labels
+        /// often start right at the panel edge (its old pictures had a frame); on glass they need room.
+        /// </summary>
+        private static float EdgeGap(RectTransform rt)
+        {
+            var panel = PanelOf(rt);
+            if (panel == null) return 100f;
+            var corners = new Vector3[4];
+            rt.GetWorldCorners(corners);
+            float left = panel.InverseTransformPoint(corners[0]).x;
+            return left - panel.rect.xMin;
+        }
+
+        private static RectTransform PanelOf(Transform t)
+        {
+            for (var p = t.parent; p != null; p = p.parent)
+            {
+                var img = p.GetComponent<Image>();
+                if (img != null && img.sprite == Sprites.Panel) return (RectTransform)p;
+            }
+            return null;
+        }
+
+        /// <summary>Move a left-aligned legacy label that touches the panel edge 10 units in (its right edge stays).</summary>
+        private static void InsetFromEdge(Text text, Undo undo)
+        {
+            var a = text.alignment;
+            if (a != TextAnchor.MiddleLeft && a != TextAnchor.UpperLeft && a != TextAnchor.LowerLeft) return;
+            var rt = text.rectTransform;
+            if (rt.anchorMin != rt.anchorMax) return;   // only free-standing labels, not stretched ones
+            float gap = EdgeGap(rt);
+            if (gap >= 8f) return;
+            float shift = 10f - gap;
+            var pos = rt.anchoredPosition;
+            var size = rt.sizeDelta;
+            rt.anchoredPosition = new Vector2(pos.x + shift * (1f - rt.pivot.x), pos.y);
+            rt.sizeDelta = new Vector2(Mathf.Max(20f, size.x - shift), size.y);
+            undo.Add(() => { if (rt != null) { rt.anchoredPosition = pos; rt.sizeDelta = size; } });
+        }
+
+        /// <summary>Write out the text Studio painted into a panel picture, at the same place.</summary>
+        private static void AddCaptions(Image image, BakedArt.Caption[] captions, Sprite original, Undo undo)
+        {
+            var rt = (RectTransform)image.transform;
+            var native = original.rect.size;
+            // Captions are in the original picture's pixels. A stretched picture scales them with the
+            // panel; a 9-sliced one keeps its title band at the top at its own size.
+            bool sliced = original.border != Vector4.zero;
+            float w = rt.rect.width, h = rt.rect.height;
+            float sx = w > 1f && native.x > 1f ? w / native.x : 1f;
+            float sy = !sliced && h > 1f && native.y > 1f ? h / native.y : 1f;
+
+            foreach (var c in captions)
+            {
+                var go = new GameObject(ThemedButton.OwnPrefix + "Caption", typeof(RectTransform));
+                go.layer = image.gameObject.layer;
+                go.transform.SetParent(rt, false);
+                go.AddComponent<LayoutElement>().ignoreLayout = true;
+                var crt = (RectTransform)go.transform;
+                crt.anchorMin = crt.anchorMax = new Vector2(0f, 1f);
+                crt.pivot = new Vector2(0f, 1f);
+                bool fullWidth = c.X0 <= 0f && c.X1 >= native.x;
+                float x0 = fullWidth ? 0f : c.X0 * sx, x1 = fullWidth ? w : c.X1 * sx;
+                crt.anchoredPosition = new Vector2(x0 + (c.Left ? 0f : 4f), -c.Y0 * sy);
+                crt.sizeDelta = new Vector2(x1 - x0 - (c.Left ? 0f : 8f), Mathf.Max(14f, (c.Y1 - c.Y0) * sy));
+                var text = Labels.Configure(go.AddComponent<Text>(), c.Title ? Fonts.Semibold : Fonts.Regular,
+                    c.Left ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter, c.Title ? 12 : 11, 8);
+                text.text = c.Text;
+                text.color = Palette.White(c.Title ? 0.85f : 0.6f);
+                undo.Add(() => { if (go != null) Object.Destroy(go); });
+            }
         }
 
         private static void StyleLegacyText(Text text, Color color, Undo undo)
@@ -335,7 +493,7 @@ namespace HS2StudioTheme
 
         private static bool IsDropdownPart(Transform t)
         {
-            var dd = t.GetComponentInParent<Dropdown>();
+            var dd = InParent<Dropdown>(t);
             return dd != null && dd.template != null && t.IsChildOf(dd.template);
         }
 
