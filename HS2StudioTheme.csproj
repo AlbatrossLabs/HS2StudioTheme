@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>HS2StudioTheme</AssemblyName>
+    <RootNamespace>HS2StudioTheme</RootNamespace>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\$(Configuration)\</OutputPath>
+    <DebugType>embedded</DebugType>
+    <Version>0.4.0</Version>
+
+    <!--
+      Every build copies the DLL to BepInEx\plugins\HS2StudioTheme\ under this folder.
+      Point it elsewhere with -p:HS2Dir="D:\Other\HS2", or skip the copy with -p:HS2Dir=
+      TextMeshPro is referenced from the game's own Managed folder under this path too.
+    -->
+    <HS2Dir>X:\HS2 RX15</HS2Dir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Analyzers" Version="1.0.8" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.Core" Version="5.4.21" PrivateAssets="all" IncludeAssets="compile" />
+    <PackageReference Include="UnityEngine.Modules" Version="2018.4.30" PrivateAssets="all" IncludeAssets="compile" />
+    <PackageReference Include="IllusionLibs.HoneySelect2.Assembly-CSharp" Version="2020.5.29.5" PrivateAssets="all" IncludeAssets="compile" />
+    <PackageReference Include="IllusionLibs.HoneySelect2.UnityEngine.UI" Version="2018.4.11.4" PrivateAssets="all" IncludeAssets="compile" />
+    <PackageReference Include="IllusionLibs.BepInEx.Harmony" Version="2.9.0" PrivateAssets="all" IncludeAssets="compile" />
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="IL">
+      <HintPath>$(HS2Dir)\StudioNEOV2_Data\Managed\IL.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>$(HS2Dir)\StudioNEOV2_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="res\icon_*.png" LogicalName="HS2StudioTheme.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <Target Name="DeployToHS2" AfterTargets="Build" Condition="'$(HS2Dir)' != ''">
+    <MakeDir Directories="$(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
+    <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
+  </Target>
+
+</Project>
