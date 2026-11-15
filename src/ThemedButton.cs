@@ -63,6 +63,11 @@ namespace HS2StudioTheme
         [NonSerialized] public Func<bool> ActiveWhen;
         /// <summary>Colour for the icon when not selected (Delete's red); null = the usual white.</summary>
         [NonSerialized] public Color? IconTint;
+        /// <summary>Colour for the label when not selected (HSUS's red Reset Transform); null = the usual.</summary>
+        [NonSerialized] public Color? LabelTint;
+
+        /// <summary>The icon image, if the button has one (toolbar folders show these in miniature).</summary>
+        public Image IconImage { get { return _icon; } }
         [NonSerialized] private bool _activeExtra;
 
         /// <summary>The picture the game last gave this button (kept while the theme draws its own).</summary>
@@ -78,7 +83,7 @@ namespace HS2StudioTheme
         {
             get
             {
-                if (_label != null) return _label.text;
+                if (_label != null) return Labels.FullText(_label);
                 if (_sourceInPlace && _source != null) return Labels.Plain(((Text)_source).text);
                 return "";
             }
@@ -114,7 +119,7 @@ namespace HS2StudioTheme
             _chevron.raycastTarget = false;
             if (_label != null)
             {
-                var lrt = (RectTransform)_label.transform;
+                var lrt = Labels.Frame(_label);
                 lrt.offsetMax = new Vector2(-16f, lrt.offsetMax.y);
             }
             _dirty = true;
@@ -132,6 +137,27 @@ namespace HS2StudioTheme
         public static ThemedButton Attach(Button button, ButtonKind kind, string iconKey, string fixedLabel)
         {
             return Attach(button, kind, iconKey, fixedLabel, -1);
+        }
+
+        [NonSerialized] private static bool s_iconOnly;
+        [NonSerialized] private static Sprite s_iconSprite;
+        [NonSerialized] private bool _iconKeepColor;
+
+        /// <summary>A plugin's own picture as the icon, in its own colours (plugins the theme has no icon for).</summary>
+        public static ThemedButton AttachPicture(Button button, ButtonKind kind, Sprite picture)
+        {
+            s_iconOnly = true;
+            s_iconSprite = picture;
+            try { return Attach(button, kind, null, null, -1); }
+            finally { s_iconOnly = false; s_iconSprite = null; }
+        }
+
+        /// <summary>Icon only, ignoring any text in the button (MoarCamz's "+" / "-": the caller hides it).</summary>
+        public static ThemedButton AttachIcon(Button button, ButtonKind kind, string iconKey)
+        {
+            s_iconOnly = true;
+            try { return Attach(button, kind, iconKey, null, -1); }
+            finally { s_iconOnly = false; }
         }
 
         public static ThemedButton Attach(Button button, ButtonKind kind, string iconKey, string fixedLabel, int toggleIndex)
@@ -200,7 +226,8 @@ namespace HS2StudioTheme
             image.preserveAspect = false;
             ColorHooks.Registry[image] = this;
 
-            var iconSprite = string.IsNullOrEmpty(iconKey) ? null : Sprites.Icon(iconKey);
+            var iconSprite = s_iconSprite != null ? s_iconSprite : string.IsNullOrEmpty(iconKey) ? null : Sprites.Icon(iconKey);
+            _iconKeepColor = s_iconSprite != null;
 
             if (kind == ButtonKind.Tile)
             {
@@ -245,7 +272,7 @@ namespace HS2StudioTheme
             }
             else
             {
-                _source = kind == ButtonKind.Tool ? null : FindSourceLabel();
+                _source = kind == ButtonKind.Tool || s_iconOnly ? null : FindSourceLabel();
                 if (_source is Text)
                 {
                     // Legacy text (Studio's list nodes, with their scrolling-name effect): restyle it in place.
@@ -280,7 +307,7 @@ namespace HS2StudioTheme
                     _icon = MakeIcon(iconSprite, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f));
                     var rt = (RectTransform)_icon.transform;
                     float h = ((RectTransform)transform).rect.height;
-                    var size = h <= 24f ? Mathf.Min(h - 6f, 14f) : Mathf.Min(h * 0.45f, 22f);
+                    var size = kind == ButtonKind.Tool ? h * (s_iconSprite != null ? 0.8f : 0.56f) : h <= 24f ? Mathf.Min(h - 6f, 14f) : Mathf.Min(h * 0.45f, 22f);
                     rt.sizeDelta = new Vector2(size, size);
                 }
             }
@@ -450,6 +477,7 @@ namespace HS2StudioTheme
             else if (!enabled) fg = Palette.White(Palette.DisabledAlpha);
             else if (_kind == ButtonKind.Tile) fg = Palette.White(Palette.SubtleTextAlpha);
             else fg = Palette.White(Palette.TextAlpha);
+            if (!Sel && enabled && LabelTint.HasValue) fg = LabelTint.Value;
 
             if (_label != null)
             {
@@ -467,6 +495,7 @@ namespace HS2StudioTheme
             if (_icon != null)
             {
                 if (_kind == ButtonKind.ViewToggle) _icon.color = Palette.White(_toggleOn ? 1f : 0.45f);
+                else if (_iconKeepColor) _icon.color = new Color(1f, 1f, 1f, enabled ? 1f : Palette.DisabledAlpha);
                 else if (!Sel && _gameYellow && enabled) _icon.color = Palette.Hex("FFD60A");
                 else if (!Sel && IconTint.HasValue && enabled) _icon.color = IconTint.Value;
                 else _icon.color = Sel ? Palette.OnAccent() : Palette.White(enabled ? 0.9f : Palette.DisabledAlpha);
@@ -474,6 +503,9 @@ namespace HS2StudioTheme
         }
 
         private enum SlotState { Empty, Saved, Current, Recent }
+
+        /// <summary>A camera slot with nothing saved in it (MoarCamz greys those).</summary>
+        public bool SlotEmpty { get { return _kind == ButtonKind.Slot && SlotStateOf(_gameColor) == SlotState.Empty; } }
 
         /// <summary>MoarCamz colours each slot every frame: grey empty, white saved, green the current view, blue last loaded.</summary>
         private static SlotState SlotStateOf(Color c)
@@ -602,7 +634,10 @@ namespace HS2StudioTheme
             rt.anchorMax = anchorMax;
             rt.offsetMin = offsetMin;
             rt.offsetMax = offsetMax;
-            return Labels.Configure(go.AddComponent<Text>(), Fonts.Regular, align, maxSize, minSize);
+            var t = Labels.Configure(go.AddComponent<Text>(), Fonts.Regular, align, maxSize, minSize);
+            // Rows and push buttons keep their text size and scroll long text instead of shrinking it.
+            if (_kind == ButtonKind.Row || _kind == ButtonKind.Push && ((RectTransform)transform).rect.width >= 48f) Marquee.Wrap(t);
+            return t;
         }
 
         // ---------------------------------------------------------------- removal
@@ -627,7 +662,7 @@ namespace HS2StudioTheme
             foreach (var kv in _hiddenExtras) if (kv.Key != null) kv.Key.color = kv.Value;
             _hiddenExtras.Clear();
             TooltipView.Hide(transform);
-            if (_label != null) Destroy(_label.gameObject);
+            if (_label != null) Destroy(Labels.Frame(_label).gameObject);
             if (_icon != null) Destroy(_icon.gameObject);
             if (_chevron != null) Destroy(_chevron.gameObject);
             Destroy(this);

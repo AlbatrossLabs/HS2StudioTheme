@@ -97,15 +97,38 @@ namespace HS2StudioTheme
                 var t = Traverse.Create(c);
                 var button = t.Property("ButtonObject").GetValue<Button>();
                 if (button == null || _done.Contains(button)) continue;
+                // KKAPI also lists Studio's own buttons (LeftTools themes those): only its own copies.
+                if (!button.name.EndsWith("(StudioAPI)")) { _done.Add(button); continue; }
                 var owner = t.Property("Owner").GetValue<BepInEx.BaseUnityPlugin>();
                 var id = t.Property("ButtonID").GetValue<string>() ?? "";
+                var hover = t.Property("HoverText").GetValue<string>();
+                string pluginName = owner != null && owner.Info != null ? owner.Info.Metadata.Name : null;
                 string key = id;
                 if (owner != null && owner.Info != null)
                     key = owner.Info.Metadata.GUID + " " + owner.Info.Metadata.Name + " " + id;
                 _done.Add(button);
+
+                // KKAPI copies Studio's "camera target" button for each of these, after the theme has
+                // themed that one, so a copy arrives wearing its icon: start each one over.
+                var copied = button.GetComponent<ThemedButton>();
+                if (copied != null) copied.Remove();
+                var picture = Picture(t.Property("IconTex").GetValue<Texture2D>());
+                if (picture == null && button.image != null && copied == null) picture = button.image.sprite;
+                if (picture != null && button.image != null) button.image.sprite = picture;   // its own, for turning the theme off
+
                 var known = Match(key.ToLowerInvariant());
-                if (known == null) continue;
-                Theme(button, ButtonKind.Tool, known, false);
+                ThemedButton b = known != null
+                    ? ThemedButton.Attach(button, ButtonKind.Tool, known[1], null)
+                    : picture != null ? ThemedButton.AttachPicture(button, ButtonKind.Tool, picture) : null;
+                if (b == null) continue;
+                _undo.Add(b.Remove);
+                if (known != null && known[1] == "p_record") b.IconTint = Palette.Hex("FF453A");
+
+                // One tooltip, ours: what it does, and which plugin it comes from.
+                string what = known != null ? known[2] : !string.IsNullOrEmpty(hover) ? hover : !string.IsNullOrEmpty(id) ? id : pluginName;
+                string tip = string.IsNullOrEmpty(pluginName) || what == pluginName ? what : what + "  ·  " + pluginName;
+                if (!string.IsNullOrEmpty(tip)) { var tt = tip; b.Tooltip = () => tt; }
+                SuppressKkapiTooltip(button.gameObject, _undo);
             }
         }
 
@@ -139,6 +162,48 @@ namespace HS2StudioTheme
             if (tooltip) { var tip = known[2]; b.Tooltip = () => tip; }
             if (known[1] == "p_record") b.IconTint = Palette.Hex("FF453A");
             _undo.Add(b.Remove);
+        }
+
+        private readonly Dictionary<Texture2D, Sprite> _pictures = new Dictionary<Texture2D, Sprite>();
+
+        private Sprite Picture(Texture2D tex)
+        {
+            if (tex == null) return null;
+            Sprite s;
+            if (!_pictures.TryGetValue(tex, out s) || s == null)
+                _pictures[tex] = s = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+            return s;
+        }
+
+        /// <summary>
+        /// KKAPI draws its own tooltip for toolbar buttons (and Studio's own) on top of the theme's; take
+        /// the button out of KKAPI's list so only one shows. Put back when the theme is turned off.
+        /// </summary>
+        internal static void SuppressKkapiTooltip(GameObject go, Undo undo)
+        {
+            try
+            {
+                var type = AccessTools.TypeByName("KKAPI.Utilities.GlobalTooltips");
+                var dict = type != null ? AccessTools.Field(type, "_tooltips")?.GetValue(null) as IDictionary : null;
+                if (dict == null || !dict.Contains(go)) return;
+                var tip = dict[go];
+                dict.Remove(go);
+                undo.Add(() => { try { if (go != null && !dict.Contains(go)) dict[go] = tip; } catch (System.Exception) { } });
+            }
+            catch (System.Exception) { }
+        }
+
+        /// <summary>The text KKAPI shows for this object, if it has one.</summary>
+        internal static string KkapiTooltip(GameObject go)
+        {
+            try
+            {
+                var type = AccessTools.TypeByName("KKAPI.Utilities.GlobalTooltips");
+                var dict = type != null ? AccessTools.Field(type, "_tooltips")?.GetValue(null) as IDictionary : null;
+                if (dict == null || !dict.Contains(go)) return null;
+                return Traverse.Create(dict[go]).Property("Text").GetValue<string>();
+            }
+            catch (System.Exception) { return null; }
         }
 
         /// <summary>Types of the code that handles this button's clicks (runtime listeners), lower case.</summary>

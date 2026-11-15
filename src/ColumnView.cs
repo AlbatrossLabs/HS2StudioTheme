@@ -130,6 +130,9 @@ namespace HS2StudioTheme
             text.color = Palette.White(0.55f);
         }
 
+        /// <summary>The breadcrumb bar under the columns (other notices line up under it).</summary>
+        internal RectTransform Breadcrumb { get { return _crumbGo != null ? (RectTransform)_crumbGo.transform : null; } }
+
         private void AddBreadcrumb()
         {
             _crumbGo = NewChild(transform, "Breadcrumb");

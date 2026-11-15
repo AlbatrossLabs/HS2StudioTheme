@@ -10,6 +10,12 @@ namespace HS2StudioTheme
         Color InterceptGameColor(Color value);
     }
 
+    /// <summary>A hook that looks after several images and needs to know which one is being written.</summary>
+    internal interface IGraphicColorHook : IColorHook
+    {
+        Color Intercept(Graphic g, Color value);
+    }
+
     /// <summary>Images whose colour writes are intercepted (see Hooks.GraphicColorSet).</summary>
     internal static class ColorHooks
     {

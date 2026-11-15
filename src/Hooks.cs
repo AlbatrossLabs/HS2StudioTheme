@@ -6,6 +6,31 @@ namespace HS2StudioTheme
 {
     internal static class Hooks
     {
+        /// <summary>
+        /// A dropdown's list must be the top thing on screen, or clicks meant for it land on whatever
+        /// sits underneath (MoarCamz's settings card under the camera selector).
+        /// </summary>
+        [HarmonyPostfix, HarmonyPatch(typeof(TMPro.TMP_Dropdown), "Show")]
+        private static void DropdownShow(TMPro.TMP_Dropdown __instance)
+        {
+            if (!StudioThemePlugin.Enabled.Value || __instance == null) return;
+            try
+            {
+                var list = __instance.transform.Find("Dropdown List");
+                var canvas = list != null ? list.GetComponent<Canvas>() : null;
+                if (canvas == null) return;
+                var root = __instance.GetComponentInParent<Canvas>();
+                if (root != null) root = root.rootCanvas;
+                canvas.overrideSorting = true;
+                if (root != null) canvas.sortingLayerID = root.sortingLayerID;
+                canvas.sortingOrder = 32000;
+                var blocker = root != null ? root.transform.Find("Blocker") : null;
+                var bc = blocker != null ? blocker.GetComponent<Canvas>() : null;
+                if (bc != null) { bc.sortingLayerID = canvas.sortingLayerID; bc.sortingOrder = 31999; }
+            }
+            catch (System.Exception) { }
+        }
+
         [HarmonyPostfix, HarmonyPatch(typeof(Studio.RootButtonCtrl), "Start")]
         private static void RootButtonCtrlStart(Studio.RootButtonCtrl __instance)
         {
@@ -23,7 +48,10 @@ namespace HS2StudioTheme
             if (ColorHooks.Registry.Count == 0) return;
             IColorHook hook;
             if (ColorHooks.Registry.TryGetValue(__instance, out hook) && hook != null)
-                value = hook.InterceptGameColor(value);
+            {
+                var multi = hook as IGraphicColorHook;
+                value = multi != null ? multi.Intercept(__instance, value) : hook.InterceptGameColor(value);
+            }
         }
     }
 }

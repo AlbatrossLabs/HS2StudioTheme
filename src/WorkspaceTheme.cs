@@ -24,23 +24,40 @@ namespace HS2StudioTheme
             var bar = ctrl.transform.parent as RectTransform;   // "Image Bar": the window
             if (scroll == null || bar == null) return;
 
-            var window = WorkspaceWindow.Attach(bar, scroll);
-            if (window != null) undo.Add(window.Remove);
+            // Each part on its own, so one failing doesn't leave the others unstyled.
+            try
+            {
+                var window = WorkspaceWindow.Attach(bar, scroll);
+                if (window != null) undo.Add(window.Remove);
+            }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the workspace window: " + e); }
 
-            var plugins = PluginButtons.Create(bar);
-            undo.Add(plugins.Remove);
+            try
+            {
+                var plugins = PluginButtons.Create(bar);
+                undo.Add(plugins.Remove);
+            }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style plugin buttons: " + e); }
 
-            var rows = WorkspaceRows.Attach(scroll.content, Traverse.Create(ctrl).Field("m_ObjectNode").GetValue<GameObject>());
-            if (rows != null) undo.Add(rows.Remove);
+            try
+            {
+                var rows = WorkspaceRows.Attach(scroll.content, Traverse.Create(ctrl).Field("m_ObjectNode").GetValue<GameObject>());
+                if (rows != null) undo.Add(rows.Remove);
+            }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the workspace rows: " + e); }
         }
     }
 
     /// <summary>The window: glass, title, count, toolbar, scroll bars, resizing.</summary>
     internal class WorkspaceWindow : MonoBehaviour
     {
-        private const float MinWidth = 240f, MinHeight = 260f;
+        private const float MinWidth = 200f, MinHeight = 260f;
+        // Toolbar: square buttons in rows along the bottom, right-aligned, Delete on its own at the left.
+        private const float Btn = 30f, BtnGap = 4f, Inset = 10f, HBar = 12f;
 
-        private RectTransform _bar, _scrollRt, _vbar, _hbar, _close;
+        private RectTransform _bar, _scrollRt, _vbar, _hbar, _close, _viewport, _delete;
+        private Vector2 _viewMin0, _viewMax0;
+        private float _defaultW;
         private GUITree.PreferredSizeFitter _barFitter;
         private float _w0, _h0, _fitterW0;
         private readonly Dictionary<RectTransform, Vector2> _origPos = new Dictionary<RectTransform, Vector2>();
@@ -58,7 +75,12 @@ namespace HS2StudioTheme
         {
             if (bar.GetComponent<WorkspaceWindow>() != null) return null;
             var w = bar.gameObject.AddComponent<WorkspaceWindow>();
-            w.Init(bar, scroll);
+            try { w.Init(bar, scroll); }
+            catch
+            {
+                w.Remove();   // put back whatever was changed before the failure
+                throw;
+            }
             return w;
         }
 
@@ -117,6 +139,10 @@ namespace HS2StudioTheme
                 if (t != null) _toolbar.Add(t);
             }
 
+            _delete = bar.Find("Button Delete") as RectTransform;
+            _viewport = scroll.viewport;
+            if (_viewport != null) { _viewMin0 = _viewport.offsetMin; _viewMax0 = _viewport.offsetMax; }
+
             // Thin scroll bars.
             _vbar = scroll.verticalScrollbar != null ? (RectTransform)scroll.verticalScrollbar.transform : null;
             _hbar = scroll.horizontalScrollbar != null ? (RectTransform)scroll.horizontalScrollbar.transform : null;
@@ -141,10 +167,16 @@ namespace HS2StudioTheme
             gripImage.color = Palette.White(0.4f);
             gripGo.AddComponent<ResizeGrip>().Window = this;
 
-            TrackPluginButtons();   // ones that already exist, at Studio's size
+            TrackPluginButtons();
+
+            // As wide as the show/hide switches unless resized.
+            _defaultW = _w0;
+            Vector3 cmin, cmax;
+            if (TopBar.CapsuleWorldRect(out cmin, out cmax) && _bar.lossyScale.x > 0f)
+                _defaultW = Mathf.Max(MinWidth, (cmax.x - cmin.x) / _bar.lossyScale.x);
             var saved = StudioThemePlugin.WorkspaceSize.Value;
             if (saved.x > 0f && saved.y > 0f) Resize(saved.x, saved.y);
-            else Layout();
+            else Resize(_defaultW, _h0);
 
             PlaceUnderSwitches();
         }
@@ -203,36 +235,84 @@ namespace HS2StudioTheme
         /// <summary>Resize to this body size (title bar width follows), keep it on screen, lay out.</summary>
         public void Resize(float w, float h)
         {
-            var canvas = (RectTransform)_bar.root;
+            var canvas = WorkspaceWindow.CanvasRect(_bar);
             float maxW = canvas.rect.width - 40f, maxH = canvas.rect.height - 120f;
             _w = Mathf.Clamp(w, MinWidth, Mathf.Max(MinWidth, maxW));
+            if (Mathf.Abs(_w - _defaultW) < 10f) _w = _defaultW;   // snaps to the switches' width
             _h = Mathf.Clamp(h, MinHeight, Mathf.Max(MinHeight, maxH));
             Layout();
         }
 
         public Vector2 Size { get { return new Vector2(_w, _h); } }
 
+        /// <summary>The top canvas's rect (Studio's canvases hang under a plain Transform, so not transform.root).</summary>
+        internal static RectTransform CanvasRect(Transform t)
+        {
+            var c = t.GetComponentInParent<Canvas>();
+            if (c != null) c = c.rootCanvas;
+            return c != null ? (RectTransform)c.transform : (RectTransform)t;
+        }
+
 
         public void SaveSize()
         {
-            StudioThemePlugin.WorkspaceSize.Value = Mathf.Approximately(_w, _w0) && Mathf.Approximately(_h, _h0)
+            StudioThemePlugin.WorkspaceSize.Value = Mathf.Approximately(_w, _defaultW) && Mathf.Approximately(_h, _h0)
                 ? Vector2.zero : new Vector2(_w, _h);
         }
 
-        /// <summary>Studio's own layout, shifted for the new width and height.</summary>
+        /// <summary>
+        /// Lay the window out for its size: toolbar rows along the bottom (as many buttons per row as
+        /// fit), the horizontal scroll bar just above them, and the list filling the rest.
+        /// </summary>
         private void Layout()
         {
             float dw = _w - _w0, dh = _h - _h0;
             if (_barFitter != null) _barFitter.preferredWidth = _fitterW0 + dw;
-
             Set(_scrollRt, Vector2.zero, new Vector2(dw, dh));
-            if (_vbar != null) Set(_vbar, new Vector2(dw, 0f), new Vector2(0f, dh));
-            if (_hbar != null) Set(_hbar, new Vector2(0f, -dh), new Vector2(dw, 0f));
             if (_close != null) Set(_close, new Vector2(dw, 0f), Vector2.zero);
-            foreach (var t in _toolbar)
-                Set(t, new Vector2(t.name == "Button Delete" ? 0f : dw, -dh), Vector2.zero);
-            foreach (var kv in _extraBase)
-                if (kv.Key != null) kv.Key.anchoredPosition = kv.Value + new Vector2(dw, -dh);
+
+            // Toolbar, in Studio's reading order (top row first, left to right), plugin buttons included.
+            var items = new List<RectTransform>();
+            foreach (var t in _toolbar) if (t != null && t != _delete && t.gameObject.activeSelf) items.Add(t);
+            foreach (var kv in _extraBase) if (kv.Key != null && kv.Key.gameObject.activeSelf) items.Add(kv.Key);
+            items.Sort((a, b) =>
+            {
+                var pa = _origPos[a]; var pb = _origPos[b];
+                if (Mathf.Abs(pa.y - pb.y) > 4f) return pb.y.CompareTo(pa.y);
+                return pa.x.CompareTo(pb.x);
+            });
+            int cols = Mathf.Max(2, Mathf.FloorToInt((_w - 2f * Inset + BtnGap) / (Btn + BtnGap)));
+            int rows = Mathf.Max(1, Mathf.CeilToInt((items.Count + 1) / (float)cols));   // + Delete
+            float scrollTop = _scrollRt.anchoredPosition.y;                               // window coordinates
+            float bottom = scrollTop - _h + Inset;                                        // toolbar's bottom edge
+            float right = _w - Inset;
+            for (int i = 0; i < items.Count; i++)
+            {
+                int row = i / cols, col = i % cols;
+                int inRow = row < rows - 1 ? cols : items.Count - (rows - 1) * cols;
+                float x = right - (inRow - col) * (Btn + BtnGap) + BtnGap;               // right-aligned rows
+                float top = bottom + (rows - row) * (Btn + BtnGap) - BtnGap;
+                Place(items[i], x, top);
+            }
+            if (_delete != null) Place(_delete, Inset, bottom + Btn);
+            float toolbarTop = bottom + rows * (Btn + BtnGap) - BtnGap;
+
+            // Horizontal scroll bar above the toolbar; the list down to it (scroll view coordinates).
+            float hBottom = toolbarTop - scrollTop + 4f;
+            if (_hbar != null)
+            {
+                _hbar.sizeDelta = new Vector2(_w - 30f, HBar);
+                _hbar.anchoredPosition = new Vector2(_origPos[_hbar].x, hBottom + _hbar.pivot.y * HBar);
+            }
+            float listBottomInset = _h + hBottom + HBar + 2f;   // from the scroll view's bottom edge
+            if (_viewport != null)
+                _viewport.offsetMin = new Vector2(_viewMin0.x, listBottomInset);
+            if (_vbar != null)
+            {
+                float top = -_viewMax0.y;   // the list's top inset (4)
+                _vbar.anchoredPosition = new Vector2(_origPos[_vbar].x + dw, _origPos[_vbar].y);
+                _vbar.sizeDelta = new Vector2(_origSize[_vbar].x, Mathf.Max(20f, _h - top - listBottomInset));
+            }
 
             // Count: right-aligned, left of the close button.
             float closeX = _close != null ? _close.anchoredPosition.x : _w - 30f;
@@ -241,6 +321,14 @@ namespace HS2StudioTheme
             // Grip at the body's bottom-left corner.
             float bodyBottom = _scrollRt.anchoredPosition.y - _scrollRt.sizeDelta.y;
             _grip.anchoredPosition = new Vector2(_scrollRt.anchoredPosition.x, bodyBottom);
+        }
+
+        /// <summary>Put a toolbar button's top-left corner at (x, top) in window coordinates, Btn square.</summary>
+        private void Place(RectTransform rt, float x, float top)
+        {
+            Remember(rt);
+            rt.sizeDelta = new Vector2(Btn, Btn);
+            rt.anchoredPosition = new Vector2(x + rt.pivot.x * Btn, top - (1f - rt.pivot.y) * Btn);
         }
 
         private void Set(RectTransform rt, Vector2 move, Vector2 grow)
@@ -264,21 +352,26 @@ namespace HS2StudioTheme
         private void TrackPluginButtons()
         {
             var offset = new Vector2(_w - _w0, -(_h - _h0));
+            bool added = false;
             for (int i = 0; i < _bar.childCount; i++)
             {
                 var t = _bar.GetChild(i) as RectTransform;
                 if (t == null || _extraBase.ContainsKey(t) || t.name.StartsWith(ThemedButton.OwnPrefix)
                     || PluginButtons.StudioWorkspaceButtons.Contains(t.name) || t.GetComponent<Button>() == null) continue;
-                // Placed relative to Studio's buttons as they are now, i.e. already shifted by the current size.
+                // Where it would be at Studio's layout (plugins place theirs next to Studio's buttons), for ordering.
                 _extraBase[t] = t.anchoredPosition - offset;
+                Remember(t);
+                _origPos[t] = _extraBase[t];
+                added = true;
             }
+            if (added && _countRt != null) Layout();
         }
 
         public void Remove()
         {
             if (_removed) return;
             _removed = true;
-            foreach (var kv in _extraBase) if (kv.Key != null) kv.Key.anchoredPosition = kv.Value;
+            if (_viewport != null) { _viewport.offsetMin = _viewMin0; _viewport.offsetMax = _viewMax0; }
             if (_barFitter != null) _barFitter.preferredWidth = _fitterW0;
             foreach (var kv in _origPos) if (kv.Key != null) kv.Key.anchoredPosition = kv.Value;
             foreach (var kv in _origSize) if (kv.Key != null) kv.Key.sizeDelta = kv.Value;
@@ -313,7 +406,7 @@ namespace HS2StudioTheme
 
         private Vector2 Local(PointerEventData e)
         {
-            var canvas = (RectTransform)transform.root;
+            var canvas = WorkspaceWindow.CanvasRect(transform);
             Vector2 p;
             RectTransformUtility.ScreenPointToLocalPointInRectangle(canvas, e.position, e.pressEventCamera, out p);
             return p;

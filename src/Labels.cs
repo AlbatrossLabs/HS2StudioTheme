@@ -31,6 +31,24 @@ namespace HS2StudioTheme
             return t;
         }
 
+        /// <summary>The rect that places a label: its scrolling frame if it has one (see <see cref="Marquee"/>), else itself.</summary>
+        public static RectTransform Frame(Text t)
+        {
+            if (t == null) return null;
+            var parent = t.transform.parent;
+            if (parent != null && parent.GetComponent<Marquee>() != null) return (RectTransform)parent;
+            return (RectTransform)t.transform;
+        }
+
+        /// <summary>What a label says in full, even while it's showing a shortened "…" version.</summary>
+        public static string FullText(Text t)
+        {
+            if (t == null) return null;
+            var parent = t.transform.parent;
+            var m = parent != null ? parent.GetComponent<Marquee>() : null;
+            return m != null ? m.FullText : t.text;
+        }
+
         /// <summary>Apple-ish body size for a line of this height: 13 for Studio's 20-unit rows.</summary>
         public static int SizeFor(float height)
         {

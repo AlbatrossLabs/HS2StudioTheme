@@ -19,7 +19,7 @@ namespace HS2StudioTheme
     {
         public const string GUID = "com.albatrosslabs.hs2.studiotheme";
         public const string PluginName = "Studio Theme";
-        public const string Version = "0.8.1";
+        public const string Version = "0.11.0";
 
         internal static StudioThemePlugin Instance;
         internal static ManualLogSource Log;
@@ -30,6 +30,8 @@ namespace HS2StudioTheme
         internal static ConfigEntry<bool> MenuLabels;
         internal static ConfigEntry<string> FontName;
         internal static ConfigEntry<Vector2> WorkspaceSize;
+        internal static ConfigEntry<string> ToolbarLayout;
+        internal static ConfigEntry<bool> FkPresetOnStart, FkPresetNow, CharacterMenu;
 
         private Studio.RootButtonCtrl _root;
         private readonly MainMenuTheme _theme = new MainMenuTheme();
@@ -51,8 +53,24 @@ namespace HS2StudioTheme
             FontName = Config.Bind("Look", "Font", "Segoe UI",
                 "A font installed in Windows. Nothing is bundled: Japanese text falls back to Yu Gothic UI or Meiryo.");
 
-            WorkspaceSize = Config.Bind("Layout", "Workspace size", Vector2.zero,
-                "Size of the workspace list, set by dragging its corner grip. 0, 0 = Studio's size.");
+            WorkspaceSize = Config.Bind("Layout", "Workspace custom size", Vector2.zero,
+                "Size of the workspace list, set by dragging its corner grip. 0, 0 = as wide as the show/hide switches, Studio's height.");
+
+            ToolbarLayout = Config.Bind("Layout", "Toolbar folders", "",
+                "Order and folders of the tool buttons at the bottom left, set by dragging them (drop one on another to make a folder). Empty = Studio's layout.");
+            FkPresetOnStart = Config.Bind("Studio", "Colour-coded FK nodes", true,
+                "While Studio's character FK colours are still its factory white, give each part its own colour: " +
+                "left hand blue, right hand red, body yellow, head and neck orange, hair purple, chest pink, skirt cyan.");
+            FkPresetNow = Config.Bind("Studio", "Apply FK colours now", false,
+                "Tick to set the colour-coded FK colours now, even if you changed them in System > Config (it unticks itself).");
+            FkPresetNow.SettingChanged += (s, e) =>
+            {
+                if (!FkPresetNow.Value) return;
+                FkColours.Apply();
+                FkPresetNow.Value = false;
+            };
+            CharacterMenu = Config.Bind("Studio", "Right-click character menu", true,
+                "Right-click a character in the scene (without dragging) for a menu: select, focus, show / hide, open their panels, FK / IK, clothing, duplicate, delete.");
 
             Enabled.SettingChanged += (s, e) => Reapply();
             GlassOpacity.SettingChanged += (s, e) => { Sprites.Clear(); Reapply(); };
@@ -78,6 +96,11 @@ namespace HS2StudioTheme
             yield return new WaitForEndOfFrame();
             yield return null;
             Reapply();
+            if (FkPresetOnStart.Value)
+            {
+                try { FkColours.ApplyIfFactory(); }
+                catch (System.Exception e) { Log.LogWarning("Couldn't set FK colours: " + e.Message); }
+            }
         }
 
         private void Reapply()

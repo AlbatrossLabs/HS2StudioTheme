@@ -72,17 +72,22 @@ namespace HS2StudioTheme
 
             foreach (var input in root.GetComponentsInChildren<InputField>(true))
                 if (!InTemplate(input)) StyleInput(input, undo);
+            foreach (var input in root.GetComponentsInChildren<TMPro.TMP_InputField>(true))
+                if (!InTemplate(input)) StyleTmpInput(input, undo);
 
             foreach (var dropdown in root.GetComponentsInChildren<Dropdown>(true))
                 StyleDropdown(dropdown, undo);
 
+            // Rows of On / Half / Off picture buttons become small sliders.
+            var stateButtons = StateSlider.Build(root, undo);
             foreach (var button in root.GetComponentsInChildren<Button>(true))
-                if (!headerButtons.Contains(button) && !InTemplate(button)) StyleButton(button, undo);
+                if (!headerButtons.Contains(button) && !stateButtons.Contains(button) && !InTemplate(button)) StyleButton(button, undo);
 
             // Labels last, so text inside themed buttons is already handled.
             foreach (var tmp in root.GetComponentsInChildren<TMPro.TMP_Text>(true))
             {
                 if (InParent<ThemedButton>(tmp) != null || InTemplate(tmp)) continue;
+                if (InParent<TMPro.TMP_InputField>(tmp) != null) continue;   // done by StyleTmpInput
                 bool header = tmp.transform.parent != null && Headers.Contains(tmp.transform.parent);
                 bool title = tmp.name.Contains("Title");
                 var label = ThemedLabel.Attach(tmp, header || title);
@@ -124,7 +129,7 @@ namespace HS2StudioTheme
         /// Hidden objects parked under a list for the game to copy (Logo's "node"). Left as they are,
         /// so each copy comes out plain and gets themed as a list row when it appears.
         /// </summary>
-        private static bool InTemplate(Component c)
+        internal static bool InTemplate(Component c)
         {
             for (var t = c.transform; t != null && t != _root; t = t.parent)
             {
@@ -233,6 +238,35 @@ namespace HS2StudioTheme
             undo.Add(() => { if (input != null) { input.selectionColor = sel; input.caretColor = caret; input.customCaretColor = custom; } });
         }
 
+        /// <summary>
+        /// A TextMeshPro field (numbers in Config, the gizmo panel, MoarCamz): rounded background, its own
+        /// text recoloured where it is (not mirrored, so typing and the caret behave as before).
+        /// </summary>
+        private static void StyleTmpInput(TMPro.TMP_InputField input, Undo undo)
+        {
+            var image = input.image != null ? input.image : input.GetComponent<Image>();
+            if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
+            Recolor(input.textComponent, Palette.White(0.95f), undo);
+            Recolor(input.placeholder as TMPro.TMP_Text, Palette.White(0.35f), undo);
+
+            var sel = input.selectionColor;
+            var caret = input.caretColor;
+            var custom = input.customCaretColor;
+            var accent = Palette.Accent;
+            input.selectionColor = new Color(accent.r, accent.g, accent.b, 0.4f);
+            input.customCaretColor = true;
+            input.caretColor = Color.white;
+            undo.Add(() => { if (input != null) { input.selectionColor = sel; input.caretColor = caret; input.customCaretColor = custom; } });
+        }
+
+        private static void Recolor(TMPro.TMP_Text text, Color color, Undo undo)
+        {
+            if (text == null) return;
+            var old = text.color;
+            text.color = color;
+            undo.Add(() => { if (text != null) text.color = old; });
+        }
+
         private static void StyleDropdown(Dropdown dropdown, Undo undo)
         {
             var image = dropdown.image != null ? dropdown.image : dropdown.GetComponent<Image>();
@@ -337,11 +371,9 @@ namespace HS2StudioTheme
         {
             var image = dropdown.image != null ? dropdown.image : dropdown.GetComponent<Image>();
             if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
-            if (dropdown.captionText != null)
-            {
-                var caption = ThemedLabel.Attach(dropdown.captionText, false, 12, 0.95f);
-                if (caption != null) undo.Add(caption.Remove);
-            }
+            // TextMeshPro text is recoloured where it is (not mirrored): the dropdown copies and re-reads
+            // these labels itself, and extra objects in its items are best avoided.
+            Recolor(dropdown.captionText, Palette.White(0.95f), undo);
 
             var arrow = dropdown.transform.Find("Arrow");
             var arrowImage = arrow != null ? arrow.GetComponent<Image>() : null;
@@ -367,13 +399,7 @@ namespace HS2StudioTheme
                 var thumb = scroll.verticalScrollbar.handleRect != null ? scroll.verticalScrollbar.handleRect.GetComponent<Image>() : null;
                 if (thumb != null) Swap(thumb, Sprites.ScrollThumb, Image.Type.Sliced, Palette.White(0.35f), undo);
             }
-            // Items are copied from the template when the list opens; the label's state is serialised,
-            // so each copy shows its own text in the system font.
-            if (dropdown.itemText != null)
-            {
-                var item = ThemedLabel.Attach(dropdown.itemText, false, 12, Palette.TextAlpha);
-                if (item != null) undo.Add(item.Remove);
-            }
+            Recolor(dropdown.itemText, Palette.White(Palette.TextAlpha), undo);
             var toggle = template.GetComponentInChildren<Toggle>(true);
             if (toggle != null)
             {
@@ -474,10 +500,10 @@ namespace HS2StudioTheme
                 float x0 = fullWidth ? 0f : c.X0 * sx, x1 = fullWidth ? w : c.X1 * sx;
                 crt.anchoredPosition = new Vector2(x0 + (c.Left ? 0f : 4f), -c.Y0 * sy);
                 crt.sizeDelta = new Vector2(x1 - x0 - (c.Left ? 0f : 8f), Mathf.Max(14f, (c.Y1 - c.Y0) * sy));
-                var text = Labels.Configure(go.AddComponent<Text>(), c.Title ? Fonts.Semibold : Fonts.Regular,
+                var text = Labels.Configure(go.AddComponent<Text>(), c.Title || c.Tint != null ? Fonts.Semibold : Fonts.Regular,
                     c.Left ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter, c.Title ? 12 : 11, 8);
                 text.text = c.Text;
-                text.color = Palette.White(c.Title ? 0.85f : 0.6f);
+                text.color = c.Tint != null ? Palette.Hex(c.Tint) : Palette.White(c.Title ? 0.85f : 0.6f);
                 undo.Add(() => { if (go != null) Object.Destroy(go); });
             }
         }

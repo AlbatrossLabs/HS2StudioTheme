@@ -62,6 +62,15 @@ namespace HS2StudioTheme
             try { TopBar.Apply(_undo); }
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the top bar: " + e); }
 
+            try { LeftTools.Apply(_undo); }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the tool buttons: " + e); }
+
+            try { CharacterMenu.Create(_undo); }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't set up the character menu: " + e); }
+
+            try { GuideTheme.Apply(_undo); }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the gizmo panel: " + e); }
+
             try { WorkspaceTheme.Apply(_undo); }
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the workspace: " + e); }
 
@@ -149,6 +158,7 @@ namespace HS2StudioTheme
                 var columns = ColumnView.Attach(manipulate.Find("03_Anime"), root != null ? root.GetComponent<ThemedPanel>() : null,
                     new[] { "Group Panel", "Category Panel", "Anime Panel" }, new[] { "Group", "Category", "Animation" });
                 if (columns != null) _undo.Add(columns.Remove);
+                KinematicsNotice.Attach(columns, _undo);
             }
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't set up the animation columns: " + e); }
         }

@@ -15,10 +15,12 @@ namespace HS2StudioTheme
             public string Text;
             public float Y0, Y1, X0, X1;
             public bool Left, Title;
+            /// <summary>Hex colour for the text (axis letters), or null for the usual white.</summary>
+            public string Tint;
 
-            public Caption(string text, float y0, float y1, float x0, float x1, bool left = false, bool title = false)
+            public Caption(string text, float y0, float y1, float x0, float x1, bool left = false, bool title = false, string tint = null)
             {
-                Text = text; Y0 = y0; Y1 = y1; X0 = x0; X1 = x1; Left = left; Title = title;
+                Text = text; Y0 = y0; Y1 = y1; X0 = x0; X1 = x1; Left = left; Title = title; Tint = tint;
             }
         }
 
@@ -32,7 +34,7 @@ namespace HS2StudioTheme
         /// <summary>Panel and section backgrounds: drawn as glass.</summary>
         public static readonly HashSet<string> PanelSprites = new HashSet<string>
         {
-            "sp_sn_04_00_00", "sp_sn_05_00_00", "sp_sn_13_00_00", "sp_sn_14_00_00", "sp_sn_14_00_01",
+            "sp_sn_04_00_00", "sp_sn_05_00_00", "sp_sn_12_00_00", "sp_sn_13_00_00", "sp_sn_14_00_00", "sp_sn_14_00_01",
             "sp_sn_15_00_00", "sp_sn_16_00_00", "sp_sn_23_00_00", "sp_sn_23_00_01", "sp_sn_23_00_02",
             "sp_sn_23_00_03", "sp_sn_23_00_05", "sp_sn_23_00_06", "sp_sn_24_00_00", "sp_sn_24_00_05",
             "sp_sn_25_00_05", "sp_sn_25_00_08", "sp_sn_25_00_10", "sp_sn_26_00_00", "sp_sn_26_00_01",
@@ -65,6 +67,12 @@ namespace HS2StudioTheme
             { "sp_sn_62_00_00", new[] { new Caption("Joint correction", 4, 21, 0, 152, title: true) } },
             { "sp_sn_39_00_00", new[] { new Caption("Girls", 5, 21, 0, 128, title: true) } },
             { "sp_sn_39_00_01", new[] { new Caption("Boys", 5, 21, 0, 128, title: true) } },
+            // The gizmo panel (bottom left): Position / Rotation / Scale rows, X Y Z in Apple's red, green, blue.
+            { "sp_sn_12_00_00", new[] {
+                new Caption("Position", 4, 18, 4, 39, left: true), new Caption("Rotation", 24, 38, 4, 39, left: true), new Caption("Scale", 44, 58, 4, 39, left: true),
+                new Caption("X", 4, 18, 36, 56, tint: "FF453A"), new Caption("Y", 4, 18, 116, 136, tint: "30D158"), new Caption("Z", 4, 18, 196, 216, tint: "0A84FF"),
+                new Caption("X", 24, 38, 36, 56, tint: "FF453A"), new Caption("Y", 24, 38, 116, 136, tint: "30D158"), new Caption("Z", 24, 38, 196, 216, tint: "0A84FF"),
+                new Caption("X", 44, 58, 36, 56, tint: "FF453A"), new Caption("Y", 44, 58, 116, 136, tint: "30D158"), new Caption("Z", 44, 58, 196, 216, tint: "0A84FF") } },
         };
 
         public static readonly Dictionary<string, Button> Buttons = new Dictionary<string, Button>
@@ -84,9 +92,28 @@ namespace HS2StudioTheme
             { "sp_sn_15_00_03", new Button("Import") }, { "sp_sn_15_00_04", new Button("Delete") },
             { "sp_sn_14_00_12", new Button("Clear list") },
             { "sp_sn_40_00_00", new Button("Name") }, { "sp_sn_40_00_01", new Button("Date") },
-            { "sp_sn_57_00_00", new Button("From anim") },   // 個別参照: take this part from the animation { "sp_sn_32_00_03", new Button("Reset") },
+            { "sp_sn_57_00_00", new Button("From anim") },   // 個別参照: take this part from the animation
+            { "sp_sn_32_00_03", new Button("Reset") },
             { "sp_sn_47_00_00", new Button("Change outfit") },
             { "sp_sn_42_00_00", new Button("Load") }, { "sp_sn_42_00_01", new Button("Change character") },
+            // Gizmo panel: reset buttons and the move / rotate / scale modes (11_01 = the selected picture)
+            { "sp_sn_12_00_02", new Button(null, "reset", "Reset") },
+            { "sp_sn_11_00_00", new Button(null, "g_move", "Move  (W)") }, { "sp_sn_11_01_00", new Button(null, "g_move", "Move  (W)") },
+            { "sp_sn_11_00_01", new Button(null, "g_rotate", "Rotate  (E)") }, { "sp_sn_11_01_01", new Button(null, "g_rotate", "Rotate  (E)") },
+            { "sp_sn_11_00_02", new Button(null, "g_scale", "Scale  (R)") }, { "sp_sn_11_01_02", new Button(null, "g_scale", "Scale  (R)") },
+            // Left tool buttons
+            { "sp_sn_10_00_06", new Button(null, "l_obj", "Object controls") },
+            { "sp_sn_54_00_00", new Button(null, "l_map", "Map controls") },
+            { "sp_sn_10_00_00", new Button(null, "l_target", "Show the camera target  (F puts it on the selection)") },
+            { "sp_sn_10_00_01", new Button(null, "l_axis", "Show gizmo axes  (Q)") },
+            { "sp_sn_10_00_03", new Button(null, "l_cam_free", "Camera: free") },
+            { "sp_sn_10_00_04", new Button(null, "l_cam_lock", "Camera: locked (hold Alt to move it)") },
+            { "sp_sn_10_00_02", new Button(null, "l_joint", "Joints") },
+            { "sp_sn_10_00_07", new Button(null, "l_gimmick", "Gimmicks") },
+            { "sp_sn_67_00_00", new Button(null, "l_trans", "Move handle  (J)") },
+            { "sp_sn_67_00_01", new Button(null, "l_center", "Center point  (K)") },
+            { "sp_sn_11_00_03", new Button(null, "l_undo", "Undo  (Ctrl+Z)") },
+            { "sp_sn_11_00_04", new Button(null, "l_redo", "Redo  (Ctrl+Shift+Z)") },
             // Icons
             { "sp_sn_25_00_02", new Button(null, "reset", "Reset to default") },
             { "sp_sn_24_00_01", new Button(null, "restart", "Restart") },

@@ -76,6 +76,10 @@ namespace HS2StudioTheme
             _label = Labels.Configure(go.AddComponent<Text>(), strong ? Fonts.Semibold : Fonts.Regular,
                 Labels.AnchorOf(source), size, Mathf.Min(8, size));
             _label.color = Palette.White(alpha);
+            // One-line labels keep their size and scroll (long ones end in "…" until hovered).
+            float lh = ((RectTransform)transform).rect.height;
+            // (Numbers keep shrinking to fit: they sit in tight boxes and must stay whole.)
+            if ((lh <= 1f || lh < size * 2.2f) && !IsNumeric(source.text)) Marquee.Wrap(_label);
 
             Hide();
             Mirror();
@@ -111,10 +115,18 @@ namespace HS2StudioTheme
         }
 
         /// <summary>Start the text further from the left (the game's text object stays where it is).</summary>
+        private static bool IsNumeric(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return true;
+            foreach (var ch in s)
+                if (char.IsLetter(ch)) return false;
+            return true;
+        }
+
         public void Inset(float left)
         {
             if (_label == null || left <= 0f) return;
-            var rt = (RectTransform)_label.transform;
+            var rt = Labels.Frame(_label);
             rt.offsetMin = new Vector2(left, rt.offsetMin.y);
         }
 
@@ -123,7 +135,7 @@ namespace HS2StudioTheme
             if (_removed) return;
             _removed = true;
             if (_source != null) _source.color = _sourceColor;
-            if (_label != null) Destroy(_label.gameObject);
+            if (_label != null) Destroy(Labels.Frame(_label).gameObject);
             Destroy(this);
         }
     }
