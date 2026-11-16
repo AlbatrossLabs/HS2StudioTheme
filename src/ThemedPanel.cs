@@ -98,12 +98,12 @@ namespace HS2StudioTheme
                 }
             }
 
-            Scan();
+            Scan(false);   // at once: styling the rest of the panel comes next and must find the rows already done
         }
 
         private void OnEnable()
         {
-            if (!_removed) Scan();
+            if (!_removed) Scan(false);
         }
 
         /// <summary>
@@ -130,6 +130,24 @@ namespace HS2StudioTheme
                 _viewport.offsetMax = new Vector2(_origViewMax.x, -Margin);
                 _viewportFitted = true;
             }
+            else if (_viewport != null && _viewport.anchorMin.y == _viewport.anchorMax.y)
+            {
+                // A viewport pinned at a fixed size (Anim's list): move its top up to the same 10-unit gap,
+                // its bottom stays.
+                var corners = new Vector3[4];
+                _viewport.GetWorldCorners(corners);
+                float viewTop = rt.InverseTransformPoint(corners[1]).y;
+                float gap = rt.rect.yMax - viewTop;
+                float delta = gap - Margin;
+                if (delta > 0.5f && delta < 40f)
+                {
+                    _origViewSize = _viewport.sizeDelta;
+                    _origViewPos = _viewport.anchoredPosition;
+                    _viewport.sizeDelta = new Vector2(_origViewSize.x, _origViewSize.y + delta);
+                    _viewport.anchoredPosition = new Vector2(_origViewPos.x, _origViewPos.y + delta * _viewport.pivot.y);
+                    _viewportPinned = true;
+                }
+            }
             if (_barRt != null && _barRt.anchorMin.y == 1f && _barRt.anchorMax.y == 1f)
             {
                 _barRt.anchoredPosition = new Vector2(_origBarPos.x, -Margin);
@@ -140,7 +158,8 @@ namespace HS2StudioTheme
         private const float Margin = 10f;
         private RectTransform _viewport;
         private Vector2 _origViewMin, _origViewMax, _origBarPos;
-        private bool _viewportFitted, _barFitted;
+        private bool _viewportFitted, _barFitted, _viewportPinned;
+        private Vector2 _origViewSize, _origViewPos;
 
         private void LateUpdate()
         {
@@ -156,25 +175,39 @@ namespace HS2StudioTheme
                 rt.sizeDelta = new Vector2(rt.sizeDelta.x, height);
                 if (_barRt != null)
                     _barRt.sizeDelta = new Vector2(_barRt.sizeDelta.x, _barFitted ? height - 2f * Margin : height - (_origSize.y - _origBarSize.y));
+                // A pinned viewport follows the panel's new height too (10 above, 10 below).
+                if (_viewportPinned && _viewport != null) _viewport.sizeDelta = new Vector2(_viewport.sizeDelta.x, height - 2f * Margin);
             }
         }
 
+        private int _scanFrom = -1;
+        private static readonly System.Diagnostics.Stopwatch ScanClock = new System.Diagnostics.Stopwatch();
+
         private void Update()
         {
-            if (_removed || Time.unscaledTime < _nextScan) return;
-            _nextScan = Time.unscaledTime + 0.5f;
+            if (_removed) return;
+            if (_scanFrom >= 0) { Scan(true); return; }   // a long list being themed a slice per frame
+            if (Time.unscaledTime < _nextScan) return;
+            _nextScan = Time.unscaledTime + 0.25f;
             var content = _scroll != null ? _scroll.content : null;
-            if (content != null && content.childCount != _lastCount) Scan();
+            if (content != null && content.childCount != _lastCount) { _scanFrom = 0; Scan(true); }
         }
 
-        /// <summary>Theme any button directly in the list that isn't themed yet.</summary>
-        private void Scan()
+        /// <summary>
+        /// Theme any button directly in the list that isn't themed yet. A long list (hundreds of animations)
+        /// is done 1 ms at a time over several frames, so opening it doesn't stall a frame.
+        /// </summary>
+        private void Scan(bool budget)
         {
             var content = _scroll != null ? _scroll.content : null;
-            if (content == null) return;
+            if (content == null) { _scanFrom = -1; return; }
             _lastCount = content.childCount;
-            for (int i = 0; i < content.childCount; i++)
+            ScanClock.Reset(); ScanClock.Start();
+            int start = Mathf.Max(0, _scanFrom);
+            _scanFrom = -1;
+            for (int i = start; i < content.childCount; i++)
             {
+                if (budget && ScanClock.Elapsed.TotalMilliseconds >= 1.0) { _scanFrom = i; break; }
                 var button = content.GetChild(i).GetComponent<Button>();
                 if (button == null) continue;
                 var row = ThemedButton.Attach(button, ButtonKind.Row, null, null);
@@ -200,6 +233,7 @@ namespace HS2StudioTheme
                 ((RectTransform)transform).sizeDelta = _origSize;
                 if (_barRt != null) { _barRt.sizeDelta = _origBarSize; _barRt.anchoredPosition = _origBarPos; }
                 if (_viewportFitted && _viewport != null) { _viewport.offsetMin = _origViewMin; _viewport.offsetMax = _origViewMax; }
+                if (_viewportPinned && _viewport != null) { _viewport.sizeDelta = _origViewSize; _viewport.anchoredPosition = _origViewPos; }
             }
 
             if (_bg != null)

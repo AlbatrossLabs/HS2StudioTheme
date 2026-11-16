@@ -24,7 +24,13 @@ namespace HS2StudioTheme
         [System.NonSerialized] private int _size;
         [System.NonSerialized] private bool _over, _scrolling;
         [System.NonSerialized] private int _phase;
+        [System.NonSerialized] private int _baseSize, _stagger;
+        [System.NonSerialized] private bool _dirty = true;
+        [System.NonSerialized] private Vector3 _lastMouse = new Vector3(-1f, -1f, 0f);
         private RectTransform _frame;
+
+        /// <summary>How far a label may shrink to fit before it ends in "…" (0.85 = to 85% of its size).</summary>
+        private const float MinScale = 0.85f;
 
         /// <summary>Put <paramref name="t"/> in a clipping frame that takes over its place and size.</summary>
         public static Marquee Wrap(Text t)
@@ -48,13 +54,25 @@ namespace HS2StudioTheme
 
             t.resizeTextForBestFit = false;
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
+            t.raycastTarget = false;   // a label: clicks go through to whatever is under it
             var m = go.AddComponent<Marquee>();
             m._text = t;
             m._align = t.alignment;
             return m;
         }
 
-        private void Awake() { _frame = (RectTransform)transform; }
+        private void Awake()
+        {
+            _frame = (RectTransform)transform;
+            _stagger = GetInstanceID() & 7;
+        }
+
+        private void OnEnable() { _dirty = true; }
+
+        // The frame changed size (panel resized, layout): measure again on the next frame.
+        private void OnRectTransformDimensionsChange() { _dirty = true; }
+
+        public void SetAlignment(TextAnchor a) { _align = a; _dirty = true; _frameW = -1f; }
 
         public string FullText { get { return _full ?? (_text != null ? _text.text : null); } }
 
@@ -68,28 +86,56 @@ namespace HS2StudioTheme
             if (_text == null) return;
             if (_frame == null) _frame = (RectTransform)transform;
 
-            float frameW = _frame.rect.width;
-            bool changed = _text.text != _shown;
-            if (changed) _full = _text.text;
-            if (changed || _text.font != _font || _text.fontSize != _size || Mathf.Abs(frameW - _frameW) > 0.5f)
+            // There are a hundred of these on screen: the text / font / size check runs every 8th frame
+            // (staggered), or at once after the frame changed size.
+            if (_dirty || ((Time.frameCount + _stagger) & 7) == 0)
             {
-                _font = _text.font;
-                _size = _text.fontSize;
-                _frameW = frameW;
-                Measure();
+                _dirty = false;
+                float frameW = _frame.rect.width;
+                var now = _text.text;
+                bool changed = !ReferenceEquals(now, _shown) && now != _shown;
+                if (changed) _full = now;
+                if (_text.fontSize != _size) _baseSize = _text.fontSize;   // set by someone else
+                if (changed || !ReferenceEquals(_text.font, _font) || _text.fontSize != _size || Mathf.Abs(frameW - _frameW) > 0.5f)
+                {
+                    _font = _text.font;
+                    _frameW = frameW;
+                    Measure();
+                    _size = _text.fontSize;
+                }
             }
             if (!_over) return;
 
-            bool hover = Hovered();
-            if (hover && !_scrolling) StartScroll();
-            else if (!hover && _scrolling) StopScroll();
+            // Hover only changes when the pointer moves.
+            var mouse = Input.mousePosition;
+            if (mouse != _lastMouse || _scrolling)
+            {
+                _lastMouse = mouse;
+                bool hover = Hovered();
+                if (hover && !_scrolling) StartScroll();
+                else if (!hover && _scrolling) StopScroll();
+            }
             if (_scrolling) Animate();
         }
 
         private void Measure()
         {
+            if (_baseSize <= 0) _baseSize = _text.fontSize;
+            if (_text.fontSize != _baseSize) _text.fontSize = _baseSize;
             _fullW = Width(_full);
             _over = _frameW > 1f && _fullW > _frameW + 0.5f;
+            if (_over)
+            {
+                // A little smaller first ("Character Light", "Joint Adjustment" fit whole); "…" only past that.
+                int min = Mathf.Max(8, Mathf.FloorToInt(_baseSize * MinScale));
+                for (int size = _baseSize - 1; size >= min && _over; size--)
+                {
+                    _text.fontSize = size;
+                    float w = Width(_full);
+                    if (w <= _frameW + 0.5f) { _fullW = w; _over = false; }
+                }
+                if (_over) { _text.fontSize = _baseSize; _fullW = Width(_full); }
+            }
             _scrolling = false;
             var rt = _text.rectTransform;
             if (!_over)

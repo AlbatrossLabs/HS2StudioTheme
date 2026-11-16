@@ -58,7 +58,6 @@ namespace HS2StudioTheme
             f._rt = (RectTransform)group;
             undo.Add(f.Remove);
             f.Load();
-            f.ResetKkapiPositionsOnce();
             f.Scan();
             return f;
         }
@@ -143,7 +142,22 @@ namespace HS2StudioTheme
         // ------------------------------------------------------------------ buttons
 
         /// <summary>Pick up buttons as they appear (plugins add theirs late) and notice KKAPI re-placing them.</summary>
+        private int _scannedCount = -1;
+
         private void Scan()
+        {
+            // New buttons: only when the toolbar's children change (names cost an allocation each).
+            if (_rt.childCount != _scannedCount || Time.frameCount % 60 == 0)
+            {
+                _scannedCount = _rt.childCount;
+                ScanChildren();
+            }
+            if (!_latticeSet) InitLattice();
+            if (Time.frameCount % 60 == 0) foreach (var b in _buttons.Values) if (b != null) MuteKkapiDrag(b);   // KKAPI adds it in edit mode
+            CheckMoved();
+        }
+
+        private void ScanChildren()
         {
             for (int i = 0; i < _rt.childCount; i++)
             {
@@ -160,8 +174,10 @@ namespace HS2StudioTheme
                 _latticeSet = false;
                 _layoutDirty = true;
             }
-            if (!_latticeSet) InitLattice();
-            if (Time.frameCount % 60 == 0) foreach (var b in _buttons.Values) if (b != null) MuteKkapiDrag(b);   // KKAPI adds it in edit mode
+        }
+
+        private void CheckMoved()
+        {
             // Someone else moved a button (KKAPI re-lays out every button when one is added, shown or hidden):
             // where KKAPI put it is its natural cell. Put everything back in the same frame, without gliding.
             foreach (var t in _buttons.Values)
@@ -223,7 +239,8 @@ namespace HS2StudioTheme
         {
             if (_removed) return;
             Scan();   // every frame: cheap, and puts back a KKAPI re-layout before it's ever drawn
-            if (_dragging == null && (_layoutDirty || Time.frameCount % 30 == 0)) Layout();
+            // Only when something changed (new button, move, folder); a slow safety pass otherwise.
+            if (_dragging == null && (_layoutDirty || Time.frameCount % 600 == 0)) Layout();
             if (_dragging != null && _pendingCell != NoCell) UpdateDragPreview();   // the push waits for a short hold
             Glide();
             if (_open != null && Input.GetMouseButtonDown(0) && !PointerOver(_panel) && !PointerOver(_open.Rt) && _dragging == null) Close();
@@ -257,7 +274,7 @@ namespace HS2StudioTheme
             var names = new HashSet<string>();
             try
             {
-                var manager = HarmonyLib.AccessTools.TypeByName("KKAPI.Studio.UI.Toolbars.ToolbarManager");
+                var manager = Reflect.Type("KKAPI.Studio.UI.Toolbars.ToolbarManager");
                 var set = manager != null ? HarmonyLib.AccessTools.Field(manager, "_Buttons")?.GetValue(null) as System.Collections.IEnumerable : null;
                 if (set == null) return names;
                 foreach (var b in set)
@@ -301,7 +318,7 @@ namespace HS2StudioTheme
             _kkapiReset = true;
             try
             {
-                var manager = HarmonyLib.AccessTools.TypeByName("KKAPI.Studio.UI.Toolbars.ToolbarManager");
+                var manager = Reflect.Type("KKAPI.Studio.UI.Toolbars.ToolbarManager");
                 var set = manager != null ? HarmonyLib.AccessTools.Field(manager, "_Buttons")?.GetValue(null) as System.Collections.IEnumerable : null;
                 if (set == null) return;
                 int n = 0;
@@ -335,17 +352,51 @@ namespace HS2StudioTheme
             return new Vector2Int(Mathf.RoundToInt((pos.x - _origin.x) / _dx), Mathf.RoundToInt((_origin.y - pos.y) / _dy));
         }
 
-        private bool Valid(Vector2Int c) { return c.x >= 0 && c.y >= 0 && c.y < _rows; }
+        // The cells buttons may use: in grid mode, the columns at the left down to above the gizmo panel;
+        // otherwise anywhere on screen (KKAPI's lattice, the whole screen).
+        private int _minCol, _maxCol = 999, _minRow, _maxRow = 4;
+        private static bool GridMode { get { return StudioThemePlugin.ToolbarGrid.Value; } }
+
+        private bool Valid(Vector2Int c) { return c.x >= _minCol && c.x <= _maxCol && c.y >= _minRow && c.y <= _maxRow; }
 
         /// <summary>The next cell in Studio's order: down the column, then the top of the next one.</summary>
-        private Vector2Int Next(Vector2Int c) { return c.y + 1 < _rows ? new Vector2Int(c.x, c.y + 1) : new Vector2Int(c.x + 1, 0); }
+        private Vector2Int Next(Vector2Int c) { return c.y + 1 <= _maxRow ? new Vector2Int(c.x, c.y + 1) : new Vector2Int(c.x + 1, _minRow); }
 
-        /// <summary>The cell under the pointer (toolbar-local), kept inside the grid and at most one column past the last used.</summary>
+        /// <summary>The cell under the pointer (toolbar-local), kept to the cells buttons may use.</summary>
         private Vector2Int SlotAt(Vector2 p, Dictionary<string, Vector2Int> placed)
         {
             var c = CellAt(p - new Vector2(_size.x / 2f, -_size.y / 2f));   // the pointer as a button's centre
-            int maxCol = placed.Count > 0 ? placed.Values.Max(v => v.x) + 1 : 0;
-            return new Vector2Int(Mathf.Clamp(c.x, 0, maxCol), Mathf.Clamp(c.y, 0, _rows - 1));
+            int maxCol = _maxCol;
+            if (GridMode) maxCol = placed.Count > 0 ? placed.Values.Max(v => v.x) + 1 : 0;   // at most one column past the last used
+            return new Vector2Int(Mathf.Clamp(c.x, _minCol, Mathf.Max(_minCol, maxCol)), Mathf.Clamp(c.y, _minRow, _maxRow));
+        }
+
+        private readonly Vector3[] _corners = new Vector3[4];
+
+        /// <summary>Which cells are usable: the grid's rows (grid mode), or every cell fully on screen.</summary>
+        private void UpdateRange()
+        {
+            if (GridMode)
+            {
+                _minCol = 0; _maxCol = 999; _minRow = 0; _maxRow = Mathf.Max(0, _rows - 1);
+                return;
+            }
+            RectTransform sample = null;
+            foreach (var b in _buttons.Values) if (b != null) { sample = b; break; }
+            var canvas = _rt.GetComponentInParent<Canvas>();
+            var root = canvas != null ? canvas.rootCanvas.transform as RectTransform : null;
+            if (sample == null || root == null) { _minCol = -50; _maxCol = 50; _minRow = -50; _maxRow = 50; return; }
+            root.GetWorldCorners(_corners);
+            Vector2 bl = _rt.InverseTransformPoint(_corners[0]), tr = _rt.InverseTransformPoint(_corners[2]);
+            // A button's top-left corner in the toolbar's space, relative to its anchoredPosition.
+            var r = sample.rect;
+            var delta = (Vector2)sample.localPosition + new Vector2(r.xMin, r.yMax) - sample.anchoredPosition;
+            _minCol = Mathf.CeilToInt((bl.x - delta.x - _origin.x) / _dx - 0.01f);
+            _maxCol = Mathf.FloorToInt((tr.x - _size.x - delta.x - _origin.x) / _dx + 0.01f);
+            _minRow = Mathf.CeilToInt((_origin.y + delta.y - tr.y) / _dy - 0.01f);
+            _maxRow = Mathf.FloorToInt((_origin.y + delta.y - _size.y - bl.y) / _dy + 0.01f);
+            if (_maxCol < _minCol) _maxCol = _minCol;
+            if (_maxRow < _minRow) _maxRow = _minRow;
         }
 
         /// <summary>Buttons and folders shown on the toolbar itself (not inside a folder).</summary>
@@ -374,6 +425,7 @@ namespace HS2StudioTheme
             {
                 // An older saved order: lay it out in that order, from the first cell.
                 var c = Vector2Int.zero;
+                UpdateRange();
                 foreach (var k in _legacyOrder) { _cellOf[k] = c; c = Next(c); }
                 _legacyOrder = null;
             }
@@ -396,7 +448,12 @@ namespace HS2StudioTheme
                     var n = CellAt(_natural[t]);
                     if (Valid(n) && !taken.Contains(n)) c = n;
                 }
-                if (c == NoCell) { c = Vector2Int.zero; while (taken.Contains(c)) c = Next(c); }
+                if (c == NoCell)
+                {
+                    c = new Vector2Int(Mathf.Max(0, _minCol), Mathf.Max(0, _minRow));
+                    int guard = 0;
+                    while (taken.Contains(c) && guard++ < 2000) c = Next(c);
+                }
                 taken.Add(c);
                 res[k] = c;
             }
@@ -417,6 +474,7 @@ namespace HS2StudioTheme
             bool snap = _snapNext;
             _snapNext = false;
             ComputeGrid();
+            UpdateRange();
             Apply(Assign(), null, snap);
             foreach (var f in _folders.Values)
             {
@@ -672,6 +730,7 @@ namespace HS2StudioTheme
             _pendingCell = NoCell;
             _dragScreen = e.position;
             ComputeGrid();
+            UpdateRange();
         }
 
         internal void Drag(RectTransform t, PointerEventData e)

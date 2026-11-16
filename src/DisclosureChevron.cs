@@ -38,6 +38,13 @@ namespace HS2StudioTheme
             _chevron = (RectTransform)go.transform;
             _chevron.anchorMin = _chevron.anchorMax = new Vector2(0.5f, 0.5f);
             _chevron.sizeDelta = new Vector2(12f, 12f);
+            // A fold button that spans the header (Screen Effect): the chevron at its right end.
+            var r = ((RectTransform)transform).rect;
+            if (r.width > r.height * 3f)
+            {
+                _chevron.anchorMin = _chevron.anchorMax = new Vector2(1f, 0.5f);
+                _chevron.anchoredPosition = new Vector2(-14f, 0f);
+            }
             _chevronImage = go.AddComponent<Image>();
             _chevronImage.sprite = Sprites.Icon("chevron");
             _chevronImage.preserveAspect = true;

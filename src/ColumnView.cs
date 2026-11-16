@@ -186,6 +186,7 @@ namespace HS2StudioTheme
         private void LateUpdate()
         {
             if (_removed) return;
+            if (Time.frameCount % 4 != 0) return;   // greys and breadcrumb: a few frames' delay is invisible
             try { UpdateColumns(); }
             catch (System.Exception e)
             {
@@ -204,7 +205,7 @@ namespace HS2StudioTheme
             bool isOpen = firstPanel != null && firstPanel.gameObject.activeInHierarchy;
             if (isOpen && !_wasOpen) _diagAt = Time.unscaledTime + 0.5f;
             _wasOpen = isOpen;
-            if (_diagAt > 0f && Time.unscaledTime >= _diagAt) { _diagAt = -1f; ColumnDiag.Dump(transform, Panels); }
+            if (_diagAt > 0f && Time.unscaledTime >= _diagAt) { _diagAt = -1f; if (StudioThemePlugin.LogPerformance.Value) ColumnDiag.Dump(transform, Panels); }
 
             // The deepest open column with a selection keeps the accent; earlier ones go grey.
             int deepest = -1;
@@ -233,7 +234,14 @@ namespace HS2StudioTheme
             if (_crumbGo == null || _crumb == null) return;   // removed by someone else
             bool show = parts > 1;
             if (_crumbGo.activeSelf != show) _crumbGo.SetActive(show);
-            if (show && _crumb.text != _sb.ToString()) _crumb.text = _sb.ToString();
+            if (show && !SameText(_crumb.text, _sb)) _crumb.text = _sb.ToString();
+        }
+
+        private static bool SameText(string s, System.Text.StringBuilder sb)
+        {
+            if (s == null || s.Length != sb.Length) return false;
+            for (int i = 0; i < s.Length; i++) if (s[i] != sb[i]) return false;
+            return true;
         }
 
         private static ThemedButton Selected(ThemedPanel panel)

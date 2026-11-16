@@ -8,7 +8,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <DebugType>embedded</DebugType>
-    <Version>0.14.2</Version>
+    <Version>0.15.5</Version>
 
     <!--
       Every build copies the DLL to BepInEx\plugins\HS2StudioTheme\ under this folder.

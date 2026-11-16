@@ -641,6 +641,25 @@ namespace HS2StudioTheme
         {
             if (_removed || _node == null) return;
             if (!StudioThemePlugin.CharacterMenu.Value || CharacterMenu.Instance == null) return;
+            // KKAPI's menu hook already opened ours (with its items) for this row.
+            if (KkapiMenu.Hooked && KkapiMenu.OpenedNode == (object)_node && Time.unscaledTime - KkapiMenu.OpenedAt < 0.3f) return;
+            if (KkapiMenu.Hooked) { StartCoroutine(OpenUnlessKkapi(screen)); return; }
+            OpenNow(screen);
+        }
+
+        // KKAPI's click handler may run after ours in the same frame: give it a frame to open the merged menu.
+        private System.Collections.IEnumerator OpenUnlessKkapi(Vector2 screen)
+        {
+            float asked = Time.unscaledTime;
+            yield return null;
+            yield return null;
+            if (KkapiMenu.OpenedNode == (object)_node && KkapiMenu.OpenedAt >= asked - 0.05f) yield break;
+            OpenNow(screen);
+        }
+
+        private void OpenNow(Vector2 screen)
+        {
+            if (_removed || _node == null) return;
             Studio.ObjectCtrlInfo info = null;
             try { Studio.Studio.Instance.dicInfo.TryGetValue(_node, out info); } catch (System.Exception) { }
             if (info == null) return;
@@ -660,6 +679,8 @@ namespace HS2StudioTheme
 
         private void OnDisable() { if (_hover) { _hover = false; Refresh(); } }
 
+        private Vector4 _geomKey = new Vector4(-1f, 0f, 0f, 0f);
+
         private void LateUpdate()
         {
             if (_removed || _node == null) return;
@@ -676,8 +697,11 @@ namespace HS2StudioTheme
 
             // Highlight spans the list, whatever the row's indent.
             var viewport = _nodeRt.parent != null ? _nodeRt.parent.parent as RectTransform : null;
-            if (viewport != null)
+            // Only when the row or the list moved or changed size (this runs for every row, every frame).
+            var key = viewport != null ? new Vector4(viewport.rect.width, _nodeRt.position.x, _rt.anchoredPosition.y, _rt.rect.height) : Vector4.zero;
+            if (viewport != null && key != _geomKey)
             {
+                _geomKey = key;
                 viewport.GetWorldCorners(_corners);
                 float left = _nodeRt.InverseTransformPoint(_corners[0]).x + 3f;
                 float right = _nodeRt.InverseTransformPoint(_corners[2]).x - 3f;

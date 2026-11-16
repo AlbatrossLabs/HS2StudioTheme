@@ -125,14 +125,15 @@ namespace HS2StudioTheme
         {
             if (_removed || !_live || _slider == null) return;
             bool horizontal = _slider.direction == Slider.Direction.LeftToRight;
-            _fill.gameObject.SetActive(horizontal);
+            if (_fill.gameObject.activeSelf != horizontal) _fill.gameObject.SetActive(horizontal);
             if (!horizontal) return;
 
             var trackRt = (RectTransform)_track.transform;
             var handleRt = _slider.handleRect;
             Vector3 centre = handleRt.TransformPoint(handleRt.rect.center);
             float x = trackRt.InverseTransformPoint(centre).x - trackRt.rect.xMin;
-            _fill.sizeDelta = new Vector2(Mathf.Max(0f, x), 0f);
+            var size = new Vector2(Mathf.Max(0f, x), 0f);
+            if ((_fill.sizeDelta - size).sqrMagnitude > 0.0001f) _fill.sizeDelta = size;   // a write rebuilds the canvas
         }
 
         public void Remove()

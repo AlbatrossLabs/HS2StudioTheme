@@ -275,7 +275,7 @@ namespace HS2StudioTheme
         private void AddClipRow()
         {
             object plugin = null;
-            if (HarmonyLib.AccessTools.TypeByName("MoarCamz.MoarCamzPlugin") != null)
+            if (Reflect.Type("MoarCamz.MoarCamzPlugin") != null)
                 plugin = HarmonyLib.Traverse.CreateWithType("MoarCamz.MoarCamzPlugin").Property("Instance").GetValue();
             if (plugin == null) return;
             var t = HarmonyLib.Traverse.Create(plugin);

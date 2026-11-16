@@ -15,7 +15,7 @@ namespace HS2StudioTheme
         {
             get
             {
-                try { return AccessTools.TypeByName("MoarCamz.MoarCamzPlugin") != null ? Traverse.CreateWithType("MoarCamz.MoarCamzPlugin").Property("Instance").GetValue() : null; }
+                try { return Reflect.Type("MoarCamz.MoarCamzPlugin") != null ? Traverse.CreateWithType("MoarCamz.MoarCamzPlugin").Property("Instance").GetValue() : null; }
                 catch { return null; }
             }
         }

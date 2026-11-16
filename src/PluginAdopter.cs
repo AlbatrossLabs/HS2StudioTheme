@@ -64,10 +64,24 @@ namespace HS2StudioTheme
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't theme a plugin's new controls: " + e); }
         }
 
+        private readonly HashSet<Transform> _contents = new HashSet<Transform>();
+        private readonly HashSet<Transform> _dropdowns = new HashSet<Transform>();
+        private readonly List<ScrollRect> _scrolls = new List<ScrollRect>();
+
         private void Sweep()
         {
             var fresh = new HashSet<int>();
             var tops = new List<Transform>();
+            // List contents and dropdowns, once per sweep: what's under them is left alone (cheaper than
+            // asking every new object's parents for their components).
+            _contents.Clear(); _dropdowns.Clear();
+            foreach (var root in _roots)
+            {
+                root.GetComponentsInChildren(true, _scrolls);
+                foreach (var sr in _scrolls) if (sr != null && sr.content != null) _contents.Add(sr.content);
+                foreach (var d in root.GetComponentsInChildren<Dropdown>(true)) _dropdowns.Add(d.transform);
+                foreach (var d in root.GetComponentsInChildren<TMPro.TMP_Dropdown>(true)) _dropdowns.Add(d.transform);
+            }
             foreach (var root in _roots)
             {
                 root.GetComponentsInChildren(true, _scratch);
@@ -105,7 +119,7 @@ namespace HS2StudioTheme
         }
 
         /// <summary>Left alone: the theme's own objects, rows of lists (themed by the list), dropdown popups.</summary>
-        private static bool Skip(Transform t)
+        private bool Skip(Transform t)
         {
             if (!(t is RectTransform)) return true;
             if (t.name.StartsWith(ThemedButton.OwnPrefix) || t.name == "Dropdown List" || t.name == "Blocker") return true;
@@ -113,10 +127,8 @@ namespace HS2StudioTheme
             if (t.name.StartsWith("TMP SubMeshUI") || t.name.StartsWith("TMP UI SubObject")) return true;   // TextMesh Pro fallback-font parts
             for (var p = t.parent; p != null; p = p.parent)
             {
+                if (_contents.Contains(p) || _dropdowns.Contains(p)) return true;
                 if (p.name.StartsWith(ThemedButton.OwnPrefix)) return true;
-                var scroll = p.GetComponent<ScrollRect>();
-                if (scroll != null && scroll.content != null && t.IsChildOf(scroll.content)) return true;
-                if (p.GetComponent<Dropdown>() != null || p.GetComponent<TMPro.TMP_Dropdown>() != null) return true;
             }
             return false;
         }

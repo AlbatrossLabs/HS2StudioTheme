@@ -419,9 +419,14 @@ namespace HS2StudioTheme
             }
         }
 
+        [System.NonSerialized] private int _stagger = -1;
+
         private void LateUpdate()
         {
             if (_removed || !_live) return;
+            // A row scrolled out of its list (the list's mask culls it): checked every 16th frame only.
+            if (_stagger < 0) _stagger = GetInstanceID() & 15;
+            if (_image != null && _image.canvasRenderer.cull && ((Time.frameCount + _stagger) & 15) != 0) return;
 
             bool interactable = _button != null && _button.IsInteractable();
             if (interactable != _lastInteractable)
@@ -432,7 +437,7 @@ namespace HS2StudioTheme
 
             // Something swapped the picture (Studio's on/off sprites, MoarCamz's blank slot): keep ours,
             // and remember theirs as the one to put back.
-            if (_themeSprite != null && _image.sprite != _themeSprite)
+            if (_themeSprite != null && !ReferenceEquals(_image.sprite, _themeSprite))
             {
                 _origSprite = _image.sprite;
                 _image.sprite = _themeSprite;

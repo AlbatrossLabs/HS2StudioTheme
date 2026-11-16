@@ -20,7 +20,7 @@ namespace HS2StudioTheme
     {
         public const string GUID = "com.albatrosslabs.hs2.studiotheme";
         public const string PluginName = "Studio Theme";
-        public const string Version = "0.14.2";
+        public const string Version = "0.15.5";
 
         internal static StudioThemePlugin Instance;
         internal static ManualLogSource Log;
@@ -32,7 +32,7 @@ namespace HS2StudioTheme
         internal static ConfigEntry<string> FontName;
         internal static ConfigEntry<Vector2> WorkspaceSize;
         internal static ConfigEntry<string> ToolbarLayout;
-        internal static ConfigEntry<bool> FkPresetOnStart, FkPresetNow, CharacterMenu, ThemePlugins, FreezeOnPose;
+        internal static ConfigEntry<bool> FkPresetOnStart, FkPresetNow, CharacterMenu, ThemePlugins, FreezeOnPose, ToolbarGrid, LogPerformance;
 
         private Studio.RootButtonCtrl _root;
         private readonly MainMenuTheme _theme = new MainMenuTheme();
@@ -59,6 +59,8 @@ namespace HS2StudioTheme
 
             ToolbarLayout = Config.Bind("Layout", "Toolbar folders", "",
                 "Order and folders of the tool buttons at the bottom left, set by dragging them (drop one on another to make a folder). Empty = Studio's layout.");
+            ToolbarGrid = Config.Bind("Layout", "Toolbar grid at the left", false,
+                "Off: the tool buttons keep the places they already have (KKAPI's, including any you set) and can be dragged anywhere on screen. On: they stay in a tidy grid at the left that stops one row above the gizmo panel.");
             FkPresetOnStart = Config.Bind("Studio", "Colour-coded FK nodes", true,
                 "While Studio's character FK colours are still its factory white, give each part its own colour: " +
                 "left hand blue, right hand red, body yellow, head and neck orange, hair purple, chest pink, skirt cyan.");
@@ -79,12 +81,19 @@ namespace HS2StudioTheme
                 "Give controls other plugins add to Studio's panels later (FK & IK, extra Joint rows...) the same look. Takes effect on the next start or theme toggle.");
 
             Enabled.SettingChanged += (s, e) => Reapply();
+            ToolbarGrid.SettingChanged += (s, e) => Reapply();
+            LogPerformance = Config.Bind("Debug", "Log performance", false,
+                "Times the theme's per-frame work and writes the heaviest parts to the log (BepInEx console / output_log.txt) every 5 seconds. For bug reports; leave off otherwise.");
+            LogPerformance.SettingChanged += (s, e) => Perf.Set(LogPerformance.Value);
             GlassOpacity.SettingChanged += (s, e) => { Sprites.Clear(); Reapply(); };
             MenuLabels.SettingChanged += (s, e) => Reapply();
             FontName.SettingChanged += (s, e) => { Fonts.Clear(); Reapply(); };
             Accent.SettingChanged += (s, e) => { Sprites.Clear(); Reapply(); };   // check boxes bake the accent in
 
-            Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
+            var harmony = Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
+            if (LogPerformance.Value) Perf.Set(true);
+            try { KkapiMenu.Patch(harmony); }
+            catch (System.Exception e) { Log.LogDebug("KKAPI's workspace menu not merged: " + e.Message); }
 
             // Cameras' clip distances are saved in the scene through KKAPI (when it's there).
             try { RegisterSceneData(); }

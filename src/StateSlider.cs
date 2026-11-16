@@ -32,6 +32,7 @@ namespace HS2StudioTheme
             public Color GameColor;
             public bool Selected;
             public Vector3 Centre;
+            public Vector2 OrigPos;
         }
 
         private readonly List<Stop> _stops = new List<Stop>();
@@ -39,7 +40,8 @@ namespace HS2StudioTheme
         private readonly List<GameObject> _added = new List<GameObject>();
         private Image _knob, _ghost;
         private Text _word;
-        private bool _writing, _removed, _dirty = true;
+        private bool _writing, _removed, _dirty = true, _shifted;
+        private readonly Dictionary<RectTransform, KeyValuePair<Vector2, Vector2>> _clipped = new Dictionary<RectTransform, KeyValuePair<Vector2, Vector2>>();
         private Stop _hover;
         private Transform _parent;
 
@@ -101,6 +103,23 @@ namespace HS2StudioTheme
                 hover.Slider = this;
             }
 
+            // Right-aligned: the last stop and the state's name end at the row's right edge, so the
+            // label (accessory names are long) gets the rest of the row.
+            var rowRt = (RectTransform)_parent;
+            float target = rowRt.rect.xMax - 4f - 40f - 10f;
+            float shift = target - _stops[_stops.Count - 1].Centre.x;
+            if (shift > 3f && shift < 120f)
+            {
+                foreach (var stop in _stops)
+                {
+                    var brt = (RectTransform)stop.Button.transform;
+                    stop.OrigPos = brt.anchoredPosition;
+                    brt.anchoredPosition = stop.OrigPos + new Vector2(shift, 0f);
+                    stop.Centre.x += shift;
+                }
+                _shifted = true;
+            }
+
             // Track from the first stop to the last, behind everything.
             var first = _stops[0].Centre;
             var last = _stops[_stops.Count - 1].Centre;
@@ -145,7 +164,32 @@ namespace HS2StudioTheme
             // MoreAccessories finds its toggle's buttons by index (GetChild(1) / (2)).
             foreach (var go in _added)
                 foreach (var g in go.GetComponentsInChildren<Graphic>(true)) g.raycastTarget = false;
+            ClipLabels();
             Refresh();
+        }
+
+        /// <summary>
+        /// Labels in the row that run under the slider (an accessory's long name, widened by a plugin)
+        /// end just before the first stop, so the text doesn't sit under the knob.
+        /// </summary>
+        private void ClipLabels()
+        {
+            if (_stops.Count == 0 || _parent == null) return;
+            var brt = (RectTransform)_stops[0].Button.transform;
+            float limit = _stops[0].Centre.x - brt.rect.width / 2f - 6f;
+            foreach (Transform c in _parent)
+            {
+                var rt = c as RectTransform;
+                if (rt == null || rt == transform || _added.Contains(c.gameObject) || c.GetComponent<Selectable>() != null) continue;
+                if (rt.anchorMin.x != rt.anchorMax.x) continue;
+                if (c.GetComponentInChildren<Text>(true) == null && c.GetComponentInChildren<TMPro.TMP_Text>(true) == null) continue;
+                float left = rt.localPosition.x + rt.rect.xMin, right = rt.localPosition.x + rt.rect.xMax;
+                if (right <= limit + 0.5f || left >= limit - 20f) continue;
+                if (!_clipped.ContainsKey(rt)) _clipped[rt] = new KeyValuePair<Vector2, Vector2>(rt.sizeDelta, rt.anchoredPosition);
+                float w = limit - left, old = rt.rect.width;
+                rt.sizeDelta = new Vector2(rt.sizeDelta.x + (w - old), rt.sizeDelta.y);
+                rt.anchoredPosition = new Vector2(rt.anchoredPosition.x + rt.pivot.x * (w - old), rt.anchoredPosition.y);
+            }
         }
 
         private Image NewImage(string name, Sprite sprite, Image.Type type, Color color)
@@ -198,6 +242,7 @@ namespace HS2StudioTheme
             if (_removed) return;
             if (_stops.Count == 0) { RepairCopy(); return; }   // a plugin copied a themed row (extra accessory slots)
             if (_dirty) Refresh();
+            if (Time.frameCount % 30 == 0) ClipLabels();   // a plugin may widen a label again when the names change
             foreach (var stop in _stops)
             {
                 var c = Palette.White(stop.Button.interactable ? 0.5f : 0.15f);
@@ -234,10 +279,14 @@ namespace HS2StudioTheme
                 if (stop.Button != null)
                 {
                     stop.Button.transition = stop.Transition;
+                    if (_shifted) ((RectTransform)stop.Button.transform).anchoredPosition = stop.OrigPos;
                     var h = stop.Button.GetComponent<StopHover>();
                     if (h != null) Destroy(h);
                 }
             }
+            foreach (var kv in _clipped)
+                if (kv.Key != null) { kv.Key.sizeDelta = kv.Value.Key; kv.Key.anchoredPosition = kv.Value.Value; }
+            _clipped.Clear();
             foreach (var go in _added) if (go != null) Destroy(go);
             Destroy(gameObject);
         }

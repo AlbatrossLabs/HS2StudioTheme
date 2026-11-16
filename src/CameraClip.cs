@@ -74,10 +74,25 @@ namespace HS2StudioTheme
         /// copies its lens (Studio's CameraControl.lensSettings) onto the camera each frame, so the distance
         /// goes into that lens; the camera itself is set too, so it shows straight away.
         /// </summary>
+        private static float _lastWant = -1f;
+        private static int _lastKey = -2, _nextCheck;
+        private static System.Reflection.PropertyInfo _ctrlProp;
+
         public static void Apply()
         {
+            // Every frame from the camera bar: the full check (reflection) only when the distance or the camera
+            // changed, or every 10 frames in case Studio put its own back.
+            float wantNow = Current;
+            int keyNow = ActiveKey();
+            if (wantNow == _lastWant && keyNow == _lastKey && Time.frameCount < _nextCheck) return;
+            _lastWant = wantNow; _lastKey = keyNow; _nextCheck = Time.frameCount + 10;
+
             object ctrl = null;
-            try { ctrl = HarmonyLib.Traverse.Create(Studio.Studio.Instance).Property("cameraCtrl").GetValue(); }
+            try
+            {
+                if (_ctrlProp == null) _ctrlProp = HarmonyLib.AccessTools.Property(typeof(Studio.Studio), "cameraCtrl");
+                ctrl = _ctrlProp != null ? _ctrlProp.GetValue(Studio.Studio.Instance, null) : null;
+            }
             catch { ctrl = null; }
             if (ctrl == null) return;
 
@@ -134,6 +149,7 @@ namespace HS2StudioTheme
         /// <summary>Theme off: Studio's own distance back.</summary>
         public static void Restore()
         {
+            _lastWant = -1f;
             if (_default <= 0f) return;
             try
             {
@@ -173,6 +189,7 @@ namespace HS2StudioTheme
         /// <param name="remap">Saved camera key to the key it has now (imports renumber objects), or null if gone.</param>
         public static void Deserialize(string text, bool withFree, System.Func<int, int?> remap)
         {
+            _lastWant = -1f;
             if (string.IsNullOrEmpty(text)) return;
             foreach (var part in text.Split(';'))
             {

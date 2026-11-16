@@ -84,7 +84,7 @@ namespace HS2StudioTheme
             if (!_toolbarLooked)
             {
                 _toolbarLooked = true;
-                _toolbarManager = AccessTools.TypeByName("KKAPI.Studio.UI.Toolbars.ToolbarManager");
+                _toolbarManager = Reflect.Type("KKAPI.Studio.UI.Toolbars.ToolbarManager");
             }
             if (_toolbarManager == null) return;
             var set = AccessTools.Field(_toolbarManager, "_Buttons")?.GetValue(null) as IEnumerable;
@@ -183,7 +183,7 @@ namespace HS2StudioTheme
         {
             try
             {
-                var type = AccessTools.TypeByName("KKAPI.Utilities.GlobalTooltips");
+                var type = Reflect.Type("KKAPI.Utilities.GlobalTooltips");
                 var dict = type != null ? AccessTools.Field(type, "_tooltips")?.GetValue(null) as IDictionary : null;
                 if (dict == null || !dict.Contains(go)) return;
                 var tip = dict[go];
@@ -198,7 +198,7 @@ namespace HS2StudioTheme
         {
             try
             {
-                var type = AccessTools.TypeByName("KKAPI.Utilities.GlobalTooltips");
+                var type = Reflect.Type("KKAPI.Utilities.GlobalTooltips");
                 var dict = type != null ? AccessTools.Field(type, "_tooltips")?.GetValue(null) as IDictionary : null;
                 if (dict == null || !dict.Contains(go)) return null;
                 return Traverse.Create(dict[go]).Property("Text").GetValue<string>();

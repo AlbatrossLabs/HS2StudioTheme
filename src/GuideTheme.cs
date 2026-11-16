@@ -46,7 +46,13 @@ namespace HS2StudioTheme
                 if (b != null)
                 {
                     var themed = b;
-                    themed.ActiveWhen = () => themed.GameSprite != null && themed.GameSprite.name.StartsWith("sp_sn_11_01");
+                    Sprite seen = null; bool on = false;
+                    themed.ActiveWhen = () =>
+                    {
+                        var sp = themed.GameSprite;
+                        if (!ReferenceEquals(sp, seen)) { seen = sp; on = sp != null && sp.name.StartsWith("sp_sn_11_01"); }   // name allocates
+                        return on;
+                    };
                 }
             }
             if (_modes.Count > 0)

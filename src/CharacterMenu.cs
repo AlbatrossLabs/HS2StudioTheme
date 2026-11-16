@@ -182,17 +182,17 @@ namespace HS2StudioTheme
         {
             public string Label, Shortcut;
             public System.Action Act;
-            public bool Danger, Separator, KeepOpen;
+            public bool Danger, Separator, KeepOpen, Disabled;
             public static Item Sep() { return new Item { Separator = true }; }
         }
 
         /// <summary>Right-click on a workspace row: the same menu for any object (characters get their extra rows).</summary>
-        internal void OpenFor(Studio.ObjectCtrlInfo oci, Vector3 screen)
+        internal void OpenFor(Studio.ObjectCtrlInfo oci, Vector3 screen, List<KkapiMenu.Entry> extra = null)
         {
-            if (oci != null) Open(oci, screen, true);
+            if (oci != null) Open(oci, screen, true, extra);
         }
 
-        private void Open(Studio.ObjectCtrlInfo oci, Vector3 screen, bool fromWorkspace)
+        private void Open(Studio.ObjectCtrlInfo oci, Vector3 screen, bool fromWorkspace, List<KkapiMenu.Entry> extra = null)
         {
             Close();
             _oci = oci;
@@ -228,6 +228,14 @@ namespace HS2StudioTheme
             }
             items.Add(new Item { Label = "Duplicate", Shortcut = "Ctrl+D", Act = Duplicate });
             items.Add(new Item { Label = "Delete", Shortcut = "Del", Danger = true, Act = Delete });
+
+            // KKAPI's items (its own and other plugins'), below ours.
+            if (extra != null && extra.Count > 0)
+            {
+                items.Add(Item.Sep());
+                foreach (var e in extra)
+                    items.Add(e.Separator ? Item.Sep() : new Item { Label = e.Label, Act = e.Act, Disabled = e.Disabled });
+            }
 
             float height = Pad + 22f + Pad / 2f;
             foreach (var it in items) height += it.Separator ? SepH : ItemH;
@@ -278,6 +286,7 @@ namespace HS2StudioTheme
             button.targetGraphic = img;
             var act = it.Act;
             bool keep = it.KeepOpen;
+            if (it.Disabled || act == null) button.interactable = false;
             button.onClick.AddListener(() =>
             {
                 try { act(); } catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Character menu: " + e.Message); }
@@ -456,14 +465,41 @@ namespace HS2StudioTheme
             field.customCaretColor = true;
             field.caretColor = Color.white;
             field.text = SceneNames.NameOf(oci);
+            float opened = Time.unscaledTime;
+            var menu = _menu;
             field.onEndEdit.AddListener(v =>
             {
-                bool cancelled = field.wasCanceled || !Input.GetKey(KeyCode.Return) && !Input.GetKey(KeyCode.KeypadEnter);
-                if (!cancelled) SceneNames.Rename(oci, v);
-                Close();
+                if (menu == null || _menu != menu) return;
+                bool enter = Input.GetKey(KeyCode.Return) || Input.GetKey(KeyCode.KeypadEnter);
+                bool escape = field.wasCanceled || Input.GetKey(KeyCode.Escape);
+                // Focus taken away right after opening (the workspace's own click handling does that): take it back.
+                if (!enter && !escape && Time.unscaledTime - opened < 0.5f) { StartCoroutine(Focus(field)); return; }
+                StudioThemePlugin.Log.LogDebug("Rename: " + (escape ? "cancelled" : "'" + v + "'"));
+                // Enter or a click elsewhere keeps the new name (as in Finder); Esc cancels.
+                if (!escape) SceneNames.Rename(oci, v);
+                EndRename(field);
             });
+            closer.onClick.RemoveAllListeners();
+            closer.onClick.AddListener(() => { if (field != null) field.DeactivateInputField(); });
+            // Studio's keyboard shortcuts (F, W / E / R, Delete...) stay quiet while typing.
+            try { Studio.Studio.Instance.SelectInputField(field, null); } catch (System.Exception) { }
+            StartCoroutine(Focus(field));
+        }
+
+        private static System.Collections.IEnumerator Focus(InputField field)
+        {
+            yield return null;   // after this click is done with
+            if (field == null) yield break;
             field.Select();
             field.ActivateInputField();
+            yield return null;
+            if (field != null) { field.selectionAnchorPosition = 0; field.selectionFocusPosition = field.text.Length; }
+        }
+
+        private void EndRename(InputField field)
+        {
+            try { Studio.Studio.Instance.DeselectInputField(field, null); } catch (System.Exception) { }
+            Close();
         }
 
         private void Kinematic(Studio.OICharInfo.KinematicMode mode)

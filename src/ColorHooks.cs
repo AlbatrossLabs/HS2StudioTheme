@@ -19,7 +19,14 @@ namespace HS2StudioTheme
     /// <summary>Images whose colour writes are intercepted (see Hooks.GraphicColorSet).</summary>
     internal static class ColorHooks
     {
-        public static readonly Dictionary<Graphic, IColorHook> Registry = new Dictionary<Graphic, IColorHook>();
+        // Looked up on every colour write in the game's UI: compare by reference (Unity's own == asks the engine).
+        public static readonly Dictionary<Graphic, IColorHook> Registry = new Dictionary<Graphic, IColorHook>(new RefComparer());
+
+        private sealed class RefComparer : IEqualityComparer<Graphic>
+        {
+            public bool Equals(Graphic a, Graphic b) { return ReferenceEquals(a, b); }
+            public int GetHashCode(Graphic g) { return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(g); }
+        }
 
         public static void Remove(Graphic g, IColorHook owner)
         {

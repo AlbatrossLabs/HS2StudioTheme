@@ -15,6 +15,7 @@ namespace HS2StudioTheme
         [SerializeField] private TMPro.TMP_Text _source;
         [SerializeField] private Color _sourceColor;
         [SerializeField] private Text _label;
+        [SerializeField] private bool _sourceRaycast;
 
         [NonSerialized] private bool _live, _removed;
         [NonSerialized] private string _last;
@@ -60,6 +61,9 @@ namespace HS2StudioTheme
             _live = true;
             _source = source;
             _sourceColor = source.color;
+            // The invisible original mustn't take clicks meant for buttons it overlaps (accessory names).
+            _sourceRaycast = source.raycastTarget;
+            if (source.GetComponentInParent<Selectable>() == null) source.raycastTarget = false;
 
             var go = new GameObject(ThemedButton.OwnPrefix + "Label", typeof(RectTransform));
             go.layer = gameObject.layer;
@@ -124,6 +128,15 @@ namespace HS2StudioTheme
             return true;
         }
 
+        /// <summary>Left-aligned, 10 units in from the label's left edge (it was centred).</summary>
+        public void AlignLeft()
+        {
+            if (_label == null) return;
+            _label.alignment = (TextAnchor)((int)_label.alignment / 3 * 3);
+            var m = Labels.Frame(_label).GetComponent<Marquee>();
+            if (m != null) m.SetAlignment(_label.alignment);
+        }
+
         public void Inset(float left)
         {
             if (_label == null || left <= 0f) return;
@@ -135,7 +148,7 @@ namespace HS2StudioTheme
         {
             if (_removed) return;
             _removed = true;
-            if (_source != null) _source.color = _sourceColor;
+            if (_source != null) { _source.color = _sourceColor; _source.raycastTarget = _sourceRaycast; }
             if (_label != null) Destroy(Labels.Frame(_label).gameObject);
             Destroy(this);
         }

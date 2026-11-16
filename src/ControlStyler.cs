@@ -84,7 +84,7 @@ namespace HS2StudioTheme
             // Rows of On / Half / Off picture buttons become small sliders.
             var stateButtons = StateSlider.Build(root, undo);
             foreach (var button in root.GetComponentsInChildren<Button>(true))
-                if (!headerButtons.Contains(button) && !stateButtons.Contains(button) && !InTemplate(button)) StyleButton(button, undo);
+                if (!headerButtons.Contains(button) && !stateButtons.Contains(button) && !InTemplate(button) && !IsListRow(button)) StyleButton(button, undo);
 
             // Labels last, so text inside themed buttons is already handled.
             foreach (var tmp in root.GetComponentsInChildren<TMPro.TMP_Text>(true))
@@ -97,6 +97,7 @@ namespace HS2StudioTheme
                 if (label != null)
                 {
                     undo.Add(label.Remove);
+                    if (!header && !title && ShouldLeftAlign(tmp.rectTransform, (int)Labels.AnchorOf(tmp) % 3)) label.AlignLeft();
                     float gap = EdgeGap(tmp.rectTransform);
                     if (gap < 8f && Labels.AnchorOf(tmp) == TextAnchor.MiddleLeft || gap < 8f && Labels.AnchorOf(tmp) == TextAnchor.UpperLeft)
                         label.Inset(10f - gap);
@@ -108,6 +109,19 @@ namespace HS2StudioTheme
                 if (InParent<ThemedButton>(text) != null || InTemplate(text)) continue;
                 if (InParent<InputField>(text) != null) continue;   // done by StyleInput
                 StyleLegacyText(text, Palette.White(Palette.TextAlpha), undo);
+                if (InParent<Dropdown>(text) == null && InParent<Toggle>(text) == null) FitLegacySize(text, false, undo);
+                if (text.raycastTarget && InParent<Selectable>(text) == null)
+                {
+                    // A plain label: clicks go through to the buttons it may overlap.
+                    text.raycastTarget = false;
+                    undo.Add(() => { if (text != null) text.raycastTarget = true; });
+                }
+                if (ShouldLeftAlign(text.rectTransform, (int)text.alignment % 3))
+                {
+                    var old = text.alignment;
+                    text.alignment = (TextAnchor)((int)old / 3 * 3);
+                    undo.Add(() => { if (text != null) text.alignment = old; });
+                }
                 InsetFromEdge(text, undo);
                 FitLegacyLabel(text, undo);
             }
@@ -353,6 +367,9 @@ namespace HS2StudioTheme
             if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
             Recolor(input.textComponent, Palette.White(0.95f), undo);
             Recolor(input.placeholder as TMPro.TMP_Text, Palette.White(0.35f), undo);
+            float h = ((RectTransform)input.transform).rect.height;
+            FitFieldText(input.textComponent, h, undo);
+            FitFieldText(input.placeholder as TMPro.TMP_Text, h, undo);
 
             var sel = input.selectionColor;
             var caret = input.caretColor;
@@ -362,6 +379,58 @@ namespace HS2StudioTheme
             input.customCaretColor = true;
             input.caretColor = Color.white;
             undo.Add(() => { if (input != null) { input.selectionColor = sel; input.caretColor = caret; input.customCaretColor = custom; } });
+        }
+
+        /// <summary>
+        /// Field text centred in the field and no taller than it allows (Studio's numbers sat low and filled
+        /// the box once the rounded background was on).
+        /// </summary>
+        private static void FitFieldText(TMPro.TMP_Text text, float fieldHeight, Undo undo)
+        {
+            if (text == null || fieldHeight <= 1f) return;
+            var align = text.alignment;
+            var auto = text.enableAutoSizing;
+            var size = text.fontSize; var max = text.fontSizeMax; var min = text.fontSizeMin;
+            float cap = Mathf.Clamp(Mathf.Round(fieldHeight * 0.6f), 10f, 15f);
+            int v = (int)align;
+            int horizontal = v & 0xFF;
+            text.alignment = (TMPro.TextAlignmentOptions)(horizontal | 512);   // Middle
+            if (auto) { text.fontSizeMax = Mathf.Min(max, cap); text.fontSizeMin = Mathf.Min(min, text.fontSizeMax); }
+            else if (size > cap) text.fontSize = cap;
+            undo.Add(() =>
+            {
+                if (text == null) return;
+                text.alignment = align;
+                text.enableAutoSizing = auto;
+                text.fontSizeMax = max; text.fontSizeMin = min; text.fontSize = size;
+            });
+        }
+
+        /// <summary>A legacy one-line label: system size (Studio's were up to 18 next to 13 elsewhere), centred vertically.</summary>
+        private static void FitLegacySize(Text text, bool middle, Undo undo)
+        {
+            float h = text.rectTransform.rect.height;
+            if (h <= 1f || h > 34f) return;
+            var size = text.fontSize; var max = text.resizeTextMaxSize; var align = text.alignment;
+            int cap = Labels.SizeFor(Mathf.Min(h, 22f));
+            if (text.resizeTextForBestFit) text.resizeTextMaxSize = Mathf.Min(max, cap);
+            else if (size > cap) text.fontSize = cap;
+            if (middle) text.alignment = (TextAnchor)(3 + (int)align % 3);
+            undo.Add(() => { if (text != null) { text.fontSize = size; text.resizeTextMaxSize = max; text.alignment = align; } });
+        }
+
+        /// <summary>
+        /// A centred label at the left of a panel row (Config's "BGM", "Backg. Color"): left-aligned like
+        /// every other row label. Labels inside toggles, buttons and titles that span the panel stay centred.
+        /// </summary>
+        private static bool ShouldLeftAlign(RectTransform rt, int column)
+        {
+            if (column != 1) return false;
+            if (InParent<Toggle>(rt) != null || InParent<Button>(rt) != null || InParent<Selectable>(rt) != null) return false;
+            var panel = PanelOf(rt);
+            if (panel == null) return false;
+            float gap = EdgeGap(rt);
+            return gap < 60f && rt.rect.width < panel.rect.width * 0.5f;
         }
 
         private static void Recolor(TMPro.TMP_Text text, Color color, Undo undo)
@@ -377,7 +446,11 @@ namespace HS2StudioTheme
             var image = dropdown.image != null ? dropdown.image : dropdown.GetComponent<Image>();
             if (image != null && Sprites.IsOurs(image.sprite)) return;
             if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
-            if (dropdown.captionText != null) StyleLegacyText(dropdown.captionText, Palette.White(0.95f), undo);
+            if (dropdown.captionText != null)
+            {
+                StyleLegacyText(dropdown.captionText, Palette.White(0.95f), undo);
+                FitLegacySize(dropdown.captionText, true, undo);
+            }
 
             var arrow = dropdown.transform.Find("Arrow");
             var arrowImage = arrow != null ? arrow.GetComponent<Image>() : null;
@@ -622,6 +695,15 @@ namespace HS2StudioTheme
             text.font = Fonts.Regular;
             text.color = color;
             undo.Add(() => { if (text != null) { text.font = font; text.color = old; } });
+        }
+
+        /// <summary>A row of a list the theme styles as a list (its rows look like list rows, not buttons).</summary>
+        private static bool IsListRow(Button button)
+        {
+            var content = button.transform.parent;
+            if (content == null) return false;
+            var scroll = InParent<ScrollRect>(content);
+            return scroll != null && scroll.content == content && scroll.GetComponent<ThemedPanel>() != null;
         }
 
         private static bool IsDropdownPart(Transform t)
