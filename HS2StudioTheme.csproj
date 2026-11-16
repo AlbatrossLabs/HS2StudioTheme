@@ -8,11 +8,11 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <DebugType>embedded</DebugType>
-    <Version>0.11.0</Version>
+    <Version>0.14.2</Version>
 
     <!--
       Every build copies the DLL to BepInEx\plugins\HS2StudioTheme\ under this folder.
-      Point it elsewhere with -p:HS2Dir="D:\Other\HS2", or skip the copy with -p:HS2Dir=
+      Point it elsewhere with -p:HS2Dir="D:\Other\HS2", or skip the copy with -p:SkipDeploy=true (release.bat does)
       TextMeshPro is referenced from the game's own Managed folder under this path too.
     -->
     <HS2Dir>X:\HS2 RX15</HS2Dir>
@@ -33,6 +33,14 @@
       <HintPath>$(HS2Dir)\StudioNEOV2_Data\Managed\IL.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="HS2API">
+      <HintPath>$(HS2Dir)\BepInEx\plugins\HS2API.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="HS2_ExtensibleSaveFormat">
+      <HintPath>$(HS2Dir)\BepInEx\plugins\HS2_BepisPlugins\HS2_ExtensibleSaveFormat.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(HS2Dir)\StudioNEOV2_Data\Managed\Unity.TextMeshPro.dll</HintPath>
       <Private>false</Private>
@@ -43,7 +51,7 @@
     <EmbeddedResource Include="res\icon_*.png" LogicalName="HS2StudioTheme.%(Filename)%(Extension)" />
   </ItemGroup>
 
-  <Target Name="DeployToHS2" AfterTargets="Build" Condition="'$(HS2Dir)' != ''">
+  <Target Name="DeployToHS2" AfterTargets="Build" Condition="'$(HS2Dir)' != '' and '$(SkipDeploy)' != 'true'">
     <MakeDir Directories="$(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
     <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
     <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />

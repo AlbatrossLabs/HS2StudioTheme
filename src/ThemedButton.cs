@@ -66,6 +66,19 @@ namespace HS2StudioTheme
         /// <summary>Colour for the label when not selected (HSUS's red Reset Transform); null = the usual.</summary>
         [NonSerialized] public Color? LabelTint;
 
+        /// <summary>0 = as its kind; 1 = the main action (accent fill: Load); 2 = a solid glass button (Change character).</summary>
+        [NonSerialized] private int _emphasis;
+
+        /// <summary>
+        /// Stand out from the scene behind: the main action in the accent colour (glass while it can't be
+        /// used), or a solid glass button. For buttons that sit on the open scene, not on a panel.
+        /// </summary>
+        public void Emphasize(bool primary)
+        {
+            _emphasis = primary ? 1 : 2;
+            _dirty = true;
+        }
+
         /// <summary>The icon image, if the button has one (toolbar folders show these in miniature).</summary>
         public Image IconImage { get { return _icon; } }
         [NonSerialized] private bool _activeExtra;
@@ -196,6 +209,7 @@ namespace HS2StudioTheme
             _lastInteractable = _button.IsInteractable();
             if (_kind == ButtonKind.Slot && _label != null) _label.text = SlotNumber();
             ColorHooks.Registry[_image] = this;
+            Clones.Track(this, Remove);
             _dirty = true;
         }
 
@@ -465,9 +479,15 @@ namespace HS2StudioTheme
             if (_removed || _image == null) return;
             _dirty = false;
 
+            bool enabled = _button != null && _button.IsInteractable();
+            if (_emphasis > 0)
+            {
+                var want = _emphasis == 1 && enabled && !Sel ? Sprites.Row : Sprites.Panel;
+                if (_themeSprite != want) { _themeSprite = want; _image.sprite = want; _image.type = Image.Type.Sliced; }
+            }
+
             Write(Background());
 
-            bool enabled = _button != null && _button.IsInteractable();
             Color fg;
             var slot = _kind == ButtonKind.Slot ? SlotStateOf(_gameColor) : SlotState.Saved;
             if (Sel && _muted) fg = Color.white;
@@ -478,6 +498,8 @@ namespace HS2StudioTheme
             else if (_kind == ButtonKind.Tile) fg = Palette.White(Palette.SubtleTextAlpha);
             else fg = Palette.White(Palette.TextAlpha);
             if (!Sel && enabled && LabelTint.HasValue) fg = LabelTint.Value;
+            if (!Sel && enabled && _emphasis == 1) fg = Palette.OnAccent();
+            else if (!Sel && enabled && _emphasis == 2) fg = Palette.White(0.95f);
 
             if (_label != null)
             {
@@ -532,10 +554,16 @@ namespace HS2StudioTheme
         {
             bool enabled = _button != null && _button.IsInteractable();
             if (Sel) return _muted ? Palette.White(0.16f) : Palette.Accent;
-            if (_kind == ButtonKind.Tool)
+            if (_emphasis == 1 && enabled)
+            {
+                var a = Palette.Accent;
+                float k = _pressed ? 0.82f : _hover ? 1.12f : 1f;
+                return new Color(Mathf.Min(1f, a.r * k), Mathf.Min(1f, a.g * k), Mathf.Min(1f, a.b * k), 1f);
+            }
+            if (_kind == ButtonKind.Tool || _emphasis > 0)
             {
                 // Glass (the sprite carries the tint): a shade darker at rest, full on hover, darker pressed.
-                float v = _pressed && enabled ? 0.75f : _hover && enabled ? 1f : 0.88f;
+                float v = !enabled ? 0.8f : _pressed ? 0.75f : _hover ? 1f : 0.88f;
                 return new Color(v, v, v, 1f);
             }
             float rest = _kind == ButtonKind.Push ? Palette.PushAlpha : 0f;

@@ -148,9 +148,15 @@ namespace HS2StudioTheme
             Sprite s;
             if (Cache.TryGetValue(key, out s) && s != null) return s;
             s = make();
+            if (s != null) s.name = OwnName + key;
             Cache[key] = s;
             return s;
         }
+
+        private const string OwnName = "theme_";
+
+        /// <summary>One of the theme's own pictures (so a copied, already-themed control isn't themed twice).</summary>
+        public static bool IsOurs(Sprite s) { return s != null && s.name.StartsWith(OwnName); }
 
         /// <summary>A rounded rectangle, 9-sliced so the corner keeps <paramref name="radius"/> UI units.</summary>
         private static Sprite Rounded(float radius, Color fill, Color border)

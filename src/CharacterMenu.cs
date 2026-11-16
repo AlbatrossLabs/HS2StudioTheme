@@ -13,6 +13,12 @@ namespace HS2StudioTheme
     /// FK / IK switches, and a Clothing flyout with On / Half / Off for each part. Everything goes
     /// through Studio's own calls, so the workspace, the panels and undo stay in step.
     /// </summary>
+    /// <summary>Something with its own right-click menu (Studio's UI input doesn't deliver right-clicks).</summary>
+    internal interface IRightClick
+    {
+        void OnRightClick(Vector2 screen);
+    }
+
     internal class CharacterMenu : MonoBehaviour
     {
         private static readonly string[] Parts = { "Top", "Bottom", "Bra", "Underwear", "Gloves", "Pantyhose", "Socks", "Shoes" };
@@ -27,12 +33,17 @@ namespace HS2StudioTheme
         private float _downTime;
         private bool _down;
         private Studio.OCIChar _char;
+        private Studio.ObjectCtrlInfo _oci;
+
+        /// <summary>The menu, for the workspace's right-click.</summary>
+        internal static CharacterMenu Instance { get; private set; }
 
         public static CharacterMenu Create(Undo undo)
         {
             var go = new GameObject(ThemedButton.OwnPrefix + "Character Menu");
             DontDestroyOnLoad(go);
             var m = go.AddComponent<CharacterMenu>();
+            Instance = m;
             undo.Add(() => { if (go != null) Destroy(go); });
             return m;
         }
@@ -40,12 +51,11 @@ namespace HS2StudioTheme
         private void Update()
         {
             if (_menu != null && Input.GetKeyDown(KeyCode.Escape)) Close();
-            if (!StudioThemePlugin.CharacterMenu.Value) return;
-
             if (Input.GetMouseButtonDown(1))
             {
                 if (_menu != null) { Close(); _down = false; return; }   // a right-click while open just closes it
-                _down = !PointerOverUi();
+                _down = true;
+                _downOverUi = PointerOverUi();
                 _downPos = Input.mousePosition;
                 _downTime = Time.unscaledTime;
             }
@@ -54,12 +64,46 @@ namespace HS2StudioTheme
                 _down = false;
                 bool click = (Input.mousePosition - _downPos).magnitude <= ClickPixels && Time.unscaledTime - _downTime <= ClickSeconds;
                 if (!click) return;
-                if (PointerOverUi()) { StudioThemePlugin.Log.LogDebug("Right-click over the UI: no character menu"); return; }
+                if (_downOverUi || PointerOverUi())
+                {
+                    // Studio's input module doesn't pass right-clicks to the UI: hand them to whatever under
+                    // the pointer has a right-click menu (camera slots, workspace rows).
+                    var target = RightClickTarget();
+                    StudioThemePlugin.Log.LogDebug("Right-click on the UI: " + (target != null ? target.GetType().Name : "nothing with a menu") + " (top: " + (Hits.Count > 0 && Hits[0].gameObject != null ? Hits[0].gameObject.name : "-") + ")");
+                    if (target != null) target.OnRightClick(Input.mousePosition);
+                    return;
+                }
+                if (!StudioThemePlugin.CharacterMenu.Value) return;
                 var chara = Pick(Input.mousePosition);
                 StudioThemePlugin.Log.LogDebug("Right-click in the scene: " + (chara != null ? chara.charInfo.fileParam.fullname : "no character under the pointer"));
-                if (chara != null) Open(chara, Input.mousePosition);
+                if (chara != null) Open(chara, Input.mousePosition, false);
                 else Close();
             }
+        }
+
+        private bool _downOverUi;
+
+        /// <summary>The nearest thing under the pointer (or above it in the hierarchy) that has a right-click menu.</summary>
+        private static IRightClick RightClickTarget()
+        {
+            var es = EventSystem.current;
+            if (es == null) return null;
+            var data = new PointerEventData(es) { position = Input.mousePosition };
+            Hits.Clear();
+            es.RaycastAll(data, Hits);
+            foreach (var hit in Hits)
+            {
+                if (hit.gameObject == null) continue;
+                for (var t = hit.gameObject.transform; t != null; t = t.parent)
+                    foreach (var mb in t.GetComponents<MonoBehaviour>())
+                    {
+                        var r = mb as IRightClick;
+                        if (r != null && mb.isActiveAndEnabled) return r;
+                    }
+                // Only the topmost thing that takes clicks counts.
+                if (hit.gameObject.GetComponentInParent<Selectable>() != null) return null;
+            }
+            return null;
         }
 
         private static bool PointerOverUi()
@@ -142,32 +186,48 @@ namespace HS2StudioTheme
             public static Item Sep() { return new Item { Separator = true }; }
         }
 
-        private void Open(Studio.OCIChar chara, Vector3 screen)
+        /// <summary>Right-click on a workspace row: the same menu for any object (characters get their extra rows).</summary>
+        internal void OpenFor(Studio.ObjectCtrlInfo oci, Vector3 screen)
+        {
+            if (oci != null) Open(oci, screen, true);
+        }
+
+        private void Open(Studio.ObjectCtrlInfo oci, Vector3 screen, bool fromWorkspace)
         {
             Close();
-            _char = chara;
+            _oci = oci;
+            _char = oci as Studio.OCIChar;
+            var chara = _char;
             EnsureCanvas();
-            var node = chara.treeNodeObject;
-            var info = chara.oiCharInfo;
+            var node = oci.treeNodeObject;
 
-            var items = new List<Item>
+            var items = new List<Item>();
+            if (!fromWorkspace) items.Add(new Item { Label = "Select in workspace", Act = () => Select() });
+            items.Add(new Item { Label = "Focus camera", Shortcut = "F", Act = FocusCamera });
+            items.Add(new Item { Label = node != null && !node.visible ? "Show" : "Hide", Act = ToggleVisible });
+            items.Add(new Item { Label = "Rename…", KeepOpen = true, Act = () => StartRename(screen) });
+            items.Add(Item.Sep());
+            if (chara != null)
             {
-                new Item { Label = "Select in workspace", Act = () => Select() },
-                new Item { Label = "Focus camera", Shortcut = "F", Act = FocusCamera },
-                new Item { Label = node != null && !node.visible ? "Show" : "Hide", Act = ToggleVisible },
-                Item.Sep(),
-                new Item { Label = "Current state…", Act = () => OpenPanel(0) },
-                new Item { Label = "Kinematics…", Act = () => OpenPanel(1) },
-                new Item { Label = "Animations…", Act = () => OpenPanel(2) },
-                new Item { Label = "Outfit…", Act = () => OpenPanel(4) },
-                new Item { Label = "Clothing", Shortcut = "›", KeepOpen = true, Act = OpenClothing },
-                Item.Sep(),
-                new Item { Label = (info.enableFK ? "✓  " : "     ") + "FK", Act = () => Kinematic(Studio.OICharInfo.KinematicMode.FK) },
-                new Item { Label = (info.enableIK ? "✓  " : "     ") + "IK", Act = () => Kinematic(Studio.OICharInfo.KinematicMode.IK) },
-                Item.Sep(),
-                new Item { Label = "Duplicate", Shortcut = "Ctrl+D", Act = Duplicate },
-                new Item { Label = "Delete", Shortcut = "Del", Danger = true, Act = Delete },
-            };
+                var info = chara.oiCharInfo;
+                items.Add(new Item { Label = "Current state…", Act = () => OpenPanel(0) });
+                items.Add(new Item { Label = "Kinematics…", Act = () => OpenPanel(1) });
+                items.Add(new Item { Label = "Animations…", Act = () => OpenPanel(2) });
+                items.Add(new Item { Label = "Outfit…", Act = () => OpenPanel(4) });
+                items.Add(new Item { Label = "Clothing", Shortcut = "›", KeepOpen = true, Act = OpenClothing });
+                items.Add(Item.Sep());
+                items.Add(new Item { Label = (info.enableFK ? "✓  " : "     ") + "FK", Act = () => Kinematic(Studio.OICharInfo.KinematicMode.FK) });
+                items.Add(new Item { Label = (info.enableIK ? "✓  " : "     ") + "IK", Act = () => Kinematic(Studio.OICharInfo.KinematicMode.IK) });
+                items.Add(Item.Sep());
+            }
+            else
+            {
+                // Studio shows the object's own panel (item, light, folder, route, camera) under Anim.
+                items.Add(new Item { Label = "Settings…", Act = OpenSettings });
+                items.Add(Item.Sep());
+            }
+            items.Add(new Item { Label = "Duplicate", Shortcut = "Ctrl+D", Act = Duplicate });
+            items.Add(new Item { Label = "Delete", Shortcut = "Del", Danger = true, Act = Delete });
 
             float height = Pad + 22f + Pad / 2f;
             foreach (var it in items) height += it.Separator ? SepH : ItemH;
@@ -187,7 +247,7 @@ namespace HS2StudioTheme
 
             _panel = Panel(_menu.transform, MenuW, height, ScreenToCanvas(screen) + new Vector2(4f, -4f));
 
-            var title = Label(_panel, chara.charInfo.fileParam.fullname, true, TextAnchor.MiddleLeft);
+            var title = Label(_panel, chara != null ? chara.charInfo.fileParam.fullname : SceneNames.NameOf(oci), true, TextAnchor.MiddleLeft);
             ((Text)title.GetComponent<Text>()).color = Palette.White(0.55f);
             Place(title, Pad + 4f, -Pad, MenuW - 2f * Pad, 22f);
 
@@ -287,7 +347,7 @@ namespace HS2StudioTheme
 
         private bool Select()
         {
-            var node = _char != null ? _char.treeNodeObject : null;
+            var node = _oci != null ? _oci.treeNodeObject : null;
             if (node == null) return false;
             var ctrl = Studio.Studio.Instance.treeNodeCtrl;
             var selected = ctrl.selectNodes;
@@ -298,15 +358,15 @@ namespace HS2StudioTheme
 
         private void FocusCamera()
         {
-            if (_char == null || _char.guideObject == null) return;
+            if (_oci == null || _oci.guideObject == null) return;
             // Studio's F key: the camera's target moves to the selection.
             var cam = Traverse.Create(Studio.Studio.Instance).Property("cameraCtrl");
-            cam.Property("targetPos").SetValue(_char.guideObject.transform.position);
+            cam.Property("targetPos").SetValue(_oci.guideObject.transform.position);
         }
 
         private void ToggleVisible()
         {
-            var node = _char != null ? _char.treeNodeObject : null;
+            var node = _oci != null ? _oci.treeNodeObject : null;
             if (node != null) node.SetVisible(!node.visible);
         }
 
@@ -335,6 +395,75 @@ namespace HS2StudioTheme
             if (mp.ociChar != chara) mp.ociChar = chara;
             if (!mp.active) mp.active = true;
             mp.OnClickRoot(row);
+        }
+
+        /// <summary>Select it and open Anim: Studio shows that object's panel.</summary>
+        private void OpenSettings()
+        {
+            if (!Select()) return;
+            StartCoroutine(OpenAnimLater());
+        }
+
+        private System.Collections.IEnumerator OpenAnimLater()
+        {
+            yield return null;
+            var root = Studio.Studio.Instance.rootButtonCtrl;
+            if (root != null && root.select != 1) root.OnClick(1);
+        }
+
+        // ------------------------------------------------------------------ rename
+
+        /// <summary>A small glass box with the name in a text field: Enter keeps it, Esc or a click elsewhere cancels.</summary>
+        private void StartRename(Vector3 screen)
+        {
+            var oci = _oci;
+            if (oci == null) return;
+            Close();
+            EnsureCanvas();
+            _menu = new GameObject(ThemedButton.OwnPrefix + "Rename Layer", typeof(RectTransform));
+            _menu.transform.SetParent(_canvasGo.transform, false);
+            var layer = (RectTransform)_menu.transform;
+            layer.anchorMin = Vector2.zero; layer.anchorMax = Vector2.one;
+            layer.offsetMin = layer.offsetMax = Vector2.zero;
+            _menu.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+            var closer = _menu.AddComponent<Button>();
+            closer.transition = Selectable.Transition.None;
+            closer.onClick.AddListener(Close);
+
+            const float w = 260f, h = 64f;
+            _panel = Panel(_menu.transform, w, h, ScreenToCanvas(screen) + new Vector2(4f, -4f));
+            var title = Label(_panel, "Rename", true, TextAnchor.MiddleLeft);
+            ((Text)title.GetComponent<Text>()).color = Palette.White(0.55f);
+            Place(title, Pad + 4f, -Pad + 2f, w - 2f * Pad, 18f);
+
+            var fieldGo = NewRect(_panel, "Name Field");
+            Place(fieldGo, Pad, -Pad - 20f, w - 2f * Pad, 26f);
+            var bg = fieldGo.AddComponent<Image>();
+            bg.sprite = Sprites.Field;
+            bg.type = Image.Type.Sliced;
+            var textGo = NewRect(fieldGo.transform, "Text");
+            var trt = (RectTransform)textGo.transform;
+            trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+            trt.offsetMin = new Vector2(8f, 0f); trt.offsetMax = new Vector2(-8f, 0f);
+            var text = Labels.Configure(textGo.AddComponent<Text>(), Fonts.Regular, TextAnchor.MiddleLeft, 13, 13);
+            text.color = Palette.White(0.95f);
+            text.supportRichText = false;
+            var field = fieldGo.AddComponent<InputField>();
+            field.textComponent = text;
+            field.lineType = InputField.LineType.SingleLine;
+            var accent = Palette.Accent;
+            field.selectionColor = new Color(accent.r, accent.g, accent.b, 0.4f);
+            field.customCaretColor = true;
+            field.caretColor = Color.white;
+            field.text = SceneNames.NameOf(oci);
+            field.onEndEdit.AddListener(v =>
+            {
+                bool cancelled = field.wasCanceled || !Input.GetKey(KeyCode.Return) && !Input.GetKey(KeyCode.KeypadEnter);
+                if (!cancelled) SceneNames.Rename(oci, v);
+                Close();
+            });
+            field.Select();
+            field.ActivateInputField();
         }
 
         private void Kinematic(Studio.OICharInfo.KinematicMode mode)
@@ -419,6 +548,7 @@ namespace HS2StudioTheme
             _flyout = null;
             _panel = null;
             _char = null;
+            _oci = null;
         }
 
         private void EnsureCanvas()

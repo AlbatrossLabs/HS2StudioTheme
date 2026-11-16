@@ -21,6 +21,9 @@ namespace HS2StudioTheme
             _root = root;
             Headers.Clear();
 
+            // Parts another plugin copied from an already-themed panel (FK & IK copies Studio's FK page).
+            RepairCopies(root, undo);
+
             // Studio's panel pictures, by name, before anything is swapped (some have text painted in).
             var panelImages = new List<KeyValuePair<Image, Sprite>>();
             foreach (var image in root.GetComponentsInChildren<Image>(true))
@@ -36,7 +39,7 @@ namespace HS2StudioTheme
                 if (panel != null) undo.Add(panel.Remove);
             }
             foreach (var image in root.GetComponentsInChildren<Image>(true))
-                if (image.name == "Image Background" && image.GetComponent<ThemedPanel>() == null && !InTemplate(image))
+                if (image.name == "Image Background" && image.GetComponent<ThemedPanel>() == null && !InTemplate(image) && !Sprites.IsOurs(image.sprite))
                     Swap(image, Sprites.Panel, Image.Type.Sliced, Color.white, undo);
             foreach (var kv in panelImages)
             {
@@ -106,7 +109,106 @@ namespace HS2StudioTheme
                 if (InParent<InputField>(text) != null) continue;   // done by StyleInput
                 StyleLegacyText(text, Palette.White(Palette.TextAlpha), undo);
                 InsetFromEdge(text, undo);
+                FitLegacyLabel(text, undo);
             }
+        }
+
+        // ---------------------------------------------------------------- copies
+
+        /// <summary>
+        /// Another plugin copied a themed panel and put its own picture on the copy (FK & IK copies
+        /// Studio's FK page, then paints "FK & IK" on it): glass again, and the copied title says the
+        /// copy's name. Dead parts of themed controls that can't take over in a copy are cleared so the
+        /// controls are themed afresh.
+        /// </summary>
+        private static void RepairCopies(Transform root, Undo undo)
+        {
+            foreach (var image in root.GetComponentsInChildren<Image>(true))
+            {
+                if (image.name.StartsWith(ThemedButton.OwnPrefix) || Sprites.IsOurs(image.sprite)) continue;
+                if (image.sprite != null && BakedArt.PanelSprites.Contains(image.sprite.name)) continue;   // Studio's own panel
+                if (image.GetComponent<Button>() != null || image.GetComponent<ThemedPanel>() != null) continue;
+                Text title = null;
+                foreach (Transform c in image.transform)
+                {
+                    if (c.name != ThemedButton.OwnPrefix + "Caption") continue;
+                    var t = c.GetComponent<Text>();
+                    if (t != null && (title == null || t.rectTransform.anchoredPosition.y > title.rectTransform.anchoredPosition.y)) title = t;
+                }
+                if (title == null) continue;
+
+                Swap(image, Sprites.Panel, Image.Type.Sliced, Color.white, undo);
+                var name = CopyTitle(image.name);
+                if (name != null)
+                {
+                    var old = title.text;
+                    title.text = name;
+                    var t = title;
+                    undo.Add(() => { if (t != null) t.text = old; });
+                }
+                var captions = new List<GameObject>();
+                foreach (Transform c in image.transform)
+                    if (c.name == ThemedButton.OwnPrefix + "Caption") captions.Add(c.gameObject);
+                undo.Add(() => { foreach (var go in captions) if (go != null) Object.DestroyImmediate(go); });
+            }
+
+            foreach (var s in root.GetComponentsInChildren<StateSlider>(true)) s.ClearIfCopy();
+            foreach (var f in root.GetComponentsInChildren<PanelFit>(true)) f.ClearIfCopy();
+        }
+
+        /// <summary>The copy's own name as a title ("FK & IK"), unless it's just "... (Clone)" or one of Studio's "00_FK" names.</summary>
+        private static string CopyTitle(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name.Contains("(Clone)")) return null;
+            if (name.Length > 3 && char.IsDigit(name[0]) && char.IsDigit(name[1]) && name[2] == '_') return null;
+            return name.Trim();
+        }
+
+        /// <summary>
+        /// A plugin's legacy one-line label that shrinks to fit (FK & IK's "Right Hand (FK)" next to
+        /// "Hair (FK)"): one size like every other label, long text ending in "…" and scrolling on hover.
+        /// </summary>
+        private static void FitLegacyLabel(Text text, Undo undo)
+        {
+            if (!text.resizeTextForBestFit || text.transform.parent == null) return;
+            // Only labels made while the game runs (other plugins' copies and controls). Studio's own,
+            // loaded with the scene, stay where they are: plugins copy those and expect them unwrapped.
+            if (text.GetInstanceID() > 0 || !StudioThemePlugin.ThemePlugins.Value) return;
+            if (text.transform.parent.GetComponent<Marquee>() != null) return;
+            if (text.transform.parent.GetComponent<LayoutGroup>() != null || text.GetComponent<LayoutElement>() != null) return;
+            if (InParent<Button>(text) != null || InParent<Dropdown>(text) != null || InParent<InputField>(text) != null) return;
+            foreach (var mb in text.GetComponents<MonoBehaviour>())
+                if (mb != null && mb != text && mb.GetType().Name.StartsWith("TextSlide")) return;
+            var rt = text.rectTransform;
+            float h = rt.rect.height;
+            if (h <= 1f || h > 30f) return;
+            bool letters = false;
+            foreach (var ch in text.text ?? "") if (char.IsLetter(ch)) { letters = true; break; }
+            if (!letters) return;
+
+            var parent = rt.parent;
+            int index = rt.GetSiblingIndex();
+            var aMin = rt.anchorMin; var aMax = rt.anchorMax; var pivot = rt.pivot; var oMin = rt.offsetMin; var oMax = rt.offsetMax;
+            bool best = text.resizeTextForBestFit;
+            int size = text.fontSize;
+            var overflow = text.horizontalOverflow;
+            var align = text.alignment;
+
+            text.fontSize = Labels.SizeFor(h);
+            var m = Marquee.Wrap(text);
+            if (m == null) { text.fontSize = size; return; }
+            var frame = m.gameObject;
+            undo.Add(() =>
+            {
+                if (text == null) return;
+                if (parent != null) { rt.SetParent(parent, false); rt.SetSiblingIndex(index); }
+                rt.anchorMin = aMin; rt.anchorMax = aMax; rt.pivot = pivot; rt.offsetMin = oMin; rt.offsetMax = oMax;
+                text.resizeTextForBestFit = best;
+                text.fontSize = size;
+                text.horizontalOverflow = overflow;
+                text.alignment = align;
+                if (frame != null) Object.DestroyImmediate(frame);
+            });
         }
 
         private static Transform _root;
@@ -196,6 +298,7 @@ namespace HS2StudioTheme
             var box = toggle.targetGraphic as Image;
             var mark = toggle.graphic as Image;
             if (box == null || mark == null) return;
+            if (Sprites.IsOurs(box.sprite) || Sprites.IsOurs(mark.sprite)) return;   // a copy of a themed one
 
             // Only check-box-sized toggles; anything bigger is a tab or picture and keeps its look.
             var r = ((RectTransform)box.transform).rect;
@@ -221,6 +324,7 @@ namespace HS2StudioTheme
         private static void StyleInput(InputField input, Undo undo)
         {
             var image = input.image != null ? input.image : input.GetComponent<Image>();
+            if (image != null && Sprites.IsOurs(image.sprite)) return;   // a copy of a themed one
             if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
 
             if (input.textComponent != null)
@@ -245,6 +349,7 @@ namespace HS2StudioTheme
         private static void StyleTmpInput(TMPro.TMP_InputField input, Undo undo)
         {
             var image = input.image != null ? input.image : input.GetComponent<Image>();
+            if (image != null && Sprites.IsOurs(image.sprite)) return;   // a copy of a themed one
             if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
             Recolor(input.textComponent, Palette.White(0.95f), undo);
             Recolor(input.placeholder as TMPro.TMP_Text, Palette.White(0.35f), undo);
@@ -270,6 +375,7 @@ namespace HS2StudioTheme
         private static void StyleDropdown(Dropdown dropdown, Undo undo)
         {
             var image = dropdown.image != null ? dropdown.image : dropdown.GetComponent<Image>();
+            if (image != null && Sprites.IsOurs(image.sprite)) return;
             if (image != null) Swap(image, Sprites.Field, Image.Type.Sliced, Color.white, undo);
             if (dropdown.captionText != null) StyleLegacyText(dropdown.captionText, Palette.White(0.95f), undo);
 
@@ -504,7 +610,8 @@ namespace HS2StudioTheme
                     c.Left ? TextAnchor.MiddleLeft : TextAnchor.MiddleCenter, c.Title ? 12 : 11, 8);
                 text.text = c.Text;
                 text.color = c.Tint != null ? Palette.Hex(c.Tint) : Palette.White(c.Title ? 0.85f : 0.6f);
-                undo.Add(() => { if (go != null) Object.Destroy(go); });
+                // At once, so re-applying in the same frame doesn't find it (and take the panel for a copy).
+                undo.Add(() => { if (go != null) Object.DestroyImmediate(go); });
             }
         }
 

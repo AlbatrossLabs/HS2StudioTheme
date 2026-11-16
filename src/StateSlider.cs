@@ -140,9 +140,11 @@ namespace HS2StudioTheme
                 _word.raycastTarget = false;
             }
 
-            // Behind Studio's (invisible) buttons, so they still get the clicks.
-            int index = _stops[0].Button.transform.GetSiblingIndex();
-            for (int i = _added.Count - 1; i >= 0; i--) _added[i].transform.SetSiblingIndex(index);
+            // Our graphics stay last among the siblings (they don't take clicks, so Studio's invisible
+            // buttons still get them). Moving them in front would shift the children's indices, and
+            // MoreAccessories finds its toggle's buttons by index (GetChild(1) / (2)).
+            foreach (var go in _added)
+                foreach (var g in go.GetComponentsInChildren<Graphic>(true)) g.raycastTarget = false;
             Refresh();
         }
 
@@ -194,6 +196,7 @@ namespace HS2StudioTheme
         private void LateUpdate()
         {
             if (_removed) return;
+            if (_stops.Count == 0) { RepairCopy(); return; }   // a plugin copied a themed row (extra accessory slots)
             if (_dirty) Refresh();
             foreach (var stop in _stops)
             {
@@ -205,6 +208,7 @@ namespace HS2StudioTheme
         private void Refresh()
         {
             _dirty = false;
+            if (_knob == null || _ghost == null) return;
             Stop current = null;
             foreach (var s in _stops) if (s.Selected) current = s;
             _knob.enabled = current != null;
@@ -235,6 +239,39 @@ namespace HS2StudioTheme
                 }
             }
             foreach (var go in _added) if (go != null) Destroy(go);
+            Destroy(gameObject);
+        }
+
+        /// <summary>
+        /// A copy another plugin made of a themed row (its slider parts came along, but not the slider's
+        /// state): take the copy apart so the row's buttons get a slider of their own.
+        /// </summary>
+        /// <summary>A copied row found while running: clear the copy and give the row a slider of its own.</summary>
+        private void RepairCopy()
+        {
+            var row = transform.parent;
+            ClearIfCopy();
+            if (row == null) return;
+            var undo = new Undo();
+            Build(row, undo);
+            Clones.Track(row.gameObject, undo.Run);
+        }
+
+        public void ClearIfCopy()
+        {
+            if (_removed || _stops.Count > 0) return;
+            _removed = true;
+            var row = transform.parent;
+            if (row != null)
+                foreach (Transform t in row)
+                {
+                    var hover = t.GetComponent<StopHover>();
+                    if (hover == null) continue;
+                    DestroyImmediate(hover);
+                    var b = t.GetComponent<Button>();
+                    if (b != null && b.image != null && b.image.color.a <= 0f) b.image.color = Color.white;
+                }
+            gameObject.SetActive(false);
             Destroy(gameObject);
         }
 

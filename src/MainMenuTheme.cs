@@ -71,6 +71,9 @@ namespace HS2StudioTheme
             try { GuideTheme.Apply(_undo); }
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the gizmo panel: " + e); }
 
+            try { ExitDialogTheme.Apply(_undo); }
+            catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the exit dialog: " + e); }
+
             try { WorkspaceTheme.Apply(_undo); }
             catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style the workspace: " + e); }
 
@@ -104,8 +107,16 @@ namespace HS2StudioTheme
             {
                 var t = add.GetChild(i);
                 if (t.name == "Scroll View Add Group") continue;
-                try { ControlStyler.StylePanel(t, _undo); }
+                try { ControlStyler.StylePanel(t, _undo); PluginAdopter.Watch(t, _undo); }
                 catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style " + t.name + ": " + e); }
+            }
+
+            // The character lists' Load / Change character sit on the open scene: make them solid.
+            foreach (var path in new[] { "00_Female/Button Load", "01_Male/Button Load", "00_Female/Button Change", "01_Male/Button Change" })
+            {
+                var t = add.Find(path);
+                var b = t != null ? t.GetComponent<ThemedButton>() : null;
+                if (b != null) b.Emphasize(path.EndsWith("Load"));
             }
 
             try
@@ -135,7 +146,7 @@ namespace HS2StudioTheme
                 }
             foreach (var t in targets)
             {
-                try { ControlStyler.StylePanel(t, _undo); }
+                try { ControlStyler.StylePanel(t, _undo); PluginAdopter.Watch(t, _undo); }
                 catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style " + t.name + ": " + e); }
             }
 
@@ -149,6 +160,14 @@ namespace HS2StudioTheme
                     var fit = PanelFit.Attach(chara.Find(path) as RectTransform);
                     if (fit != null) _undo.Add(fit.Remove);
                 }
+            }
+
+            // Current State: empty accessory slots fold away.
+            if (chara != null)
+            {
+                var rows = EmptyRows.Attach(chara.Find("01_State/Viewport/Content/Slot"));
+                if (rows != null) _undo.Add(rows.Remove);
+                else StudioThemePlugin.Log.LogDebug("Accessory slots not found");
             }
 
             // The animation picker as a column view.
@@ -173,7 +192,7 @@ namespace HS2StudioTheme
             {
                 var panel = system.GetChild(i);
                 if (panel.GetComponent<Canvas>() == null && panel.GetComponent<CanvasGroup>() == null) continue;
-                try { ControlStyler.StylePanel(panel, _undo); }
+                try { ControlStyler.StylePanel(panel, _undo); PluginAdopter.Watch(panel, _undo); }
                 catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Couldn't style " + panel.name + ": " + e); }
             }
         }
@@ -196,6 +215,7 @@ namespace HS2StudioTheme
         {
             TooltipView.Destroy();
             _undo.Run();
+            Clones.RemoveAll();
             foreach (var t in _tiles) if (t != null) t.Remove();
             foreach (var p in _panels) if (p != null) p.Remove();
             _tiles.Clear();

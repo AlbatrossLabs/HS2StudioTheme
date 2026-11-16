@@ -117,8 +117,30 @@ namespace HS2StudioTheme
             _origSize = rt.sizeDelta;
             var bar = _scroll.verticalScrollbar;
             _barRt = bar != null ? (RectTransform)bar.transform : null;
-            if (_barRt != null) _origBarSize = _barRt.sizeDelta;
+            if (_barRt != null) { _origBarSize = _barRt.sizeDelta; _origBarPos = _barRt.anchoredPosition; }
+
+            // Studio's lists leave 20 units above the first row and 25 under the last (room for its old
+            // picture's frame and title band); on glass 10 each is plenty, and every row of System fits.
+            _viewport = _scroll.viewport;
+            if (_viewport != null && _viewport.anchorMin == Vector2.zero && _viewport.anchorMax == Vector2.one)
+            {
+                _origViewMin = _viewport.offsetMin;
+                _origViewMax = _viewport.offsetMax;
+                _viewport.offsetMin = new Vector2(_origViewMin.x, Margin);
+                _viewport.offsetMax = new Vector2(_origViewMax.x, -Margin);
+                _viewportFitted = true;
+            }
+            if (_barRt != null && _barRt.anchorMin.y == 1f && _barRt.anchorMax.y == 1f)
+            {
+                _barRt.anchoredPosition = new Vector2(_origBarPos.x, -Margin);
+                _barFitted = true;
+            }
         }
+
+        private const float Margin = 10f;
+        private RectTransform _viewport;
+        private Vector2 _origViewMin, _origViewMax, _origBarPos;
+        private bool _viewportFitted, _barFitted;
 
         private void LateUpdate()
         {
@@ -133,7 +155,7 @@ namespace HS2StudioTheme
             {
                 rt.sizeDelta = new Vector2(rt.sizeDelta.x, height);
                 if (_barRt != null)
-                    _barRt.sizeDelta = new Vector2(_barRt.sizeDelta.x, height - (_origSize.y - _origBarSize.y));
+                    _barRt.sizeDelta = new Vector2(_barRt.sizeDelta.x, _barFitted ? height - 2f * Margin : height - (_origSize.y - _origBarSize.y));
             }
         }
 
@@ -176,7 +198,8 @@ namespace HS2StudioTheme
             if (_fitTo != null)
             {
                 ((RectTransform)transform).sizeDelta = _origSize;
-                if (_barRt != null) _barRt.sizeDelta = _origBarSize;
+                if (_barRt != null) { _barRt.sizeDelta = _origBarSize; _barRt.anchoredPosition = _origBarPos; }
+                if (_viewportFitted && _viewport != null) { _viewport.offsetMin = _origViewMin; _viewport.offsetMax = _origViewMax; }
             }
 
             if (_bg != null)

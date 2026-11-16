@@ -31,6 +31,33 @@ namespace HS2StudioTheme
             catch (System.Exception) { }
         }
 
+        /// <summary>Studio makes the exit dialog when it's asked for (System › End, closing the window): theme it then.</summary>
+        [HarmonyPostfix, HarmonyPatch(typeof(ExitDialog), "GameEnd")]
+        private static void ExitDialogGameEnd()
+        {
+            try { ExitDialogTheme.StyleAll(); } catch (System.Exception) { }
+        }
+
+        [HarmonyPostfix, HarmonyPatch(typeof(ExitDialog), "Initialize")]
+        private static void ExitDialogInitialize(ExitDialog __instance)
+        {
+            try { ExitDialogTheme.Style(__instance); } catch (System.Exception) { }
+        }
+
+        /// <summary>
+        /// A pose puts the character on its saved animation at the saved moment; left alone, the animation
+        /// plays on from there and moves whatever the pose doesn't hold. Pause it there (speed 0).
+        /// </summary>
+        [HarmonyPostfix, HarmonyPatch(typeof(Studio.PauseCtrl), "Load", new[] { typeof(Studio.OCIChar), typeof(string) })]
+        private static void PoseLoaded(Studio.OCIChar __0, bool __result)
+        {
+            try
+            {
+                if (__result && __0 != null && StudioThemePlugin.FreezeOnPose.Value) __0.animeSpeed = 0f;
+            }
+            catch (System.Exception) { }
+        }
+
         [HarmonyPostfix, HarmonyPatch(typeof(Studio.RootButtonCtrl), "Start")]
         private static void RootButtonCtrlStart(Studio.RootButtonCtrl __instance)
         {

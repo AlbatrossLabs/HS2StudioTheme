@@ -17,7 +17,7 @@ namespace HS2StudioTheme
         private const float Gap = 6f, Inset = 6f, BarWidth = 8f;
         private string[] Panels;
         private string[] Titles;
-        private float _x, _bottom, _right;
+        private float _x, _bottom, _right, _rows;
 
         private readonly List<ThemedPanel> _chain = new List<ThemedPanel>();
         private readonly List<GameObject> _added = new List<GameObject>();
@@ -65,41 +65,47 @@ namespace HS2StudioTheme
         /// </summary>
         private void Narrow(RectTransform column)
         {
-            var size = column.sizeDelta;
-            var pos = column.anchoredPosition;
-            var viewport = column.Find("Viewport") as RectTransform;
-            float rows = size.x - 30f;
-            bool fixedViewport = viewport != null && viewport.anchorMin == viewport.anchorMax;
-            if (viewport != null) rows = fixedViewport ? viewport.sizeDelta.x : size.x + viewport.sizeDelta.x;
+            var scroll = column.GetComponent<ScrollRect>();
+            var viewport = (scroll != null && scroll.viewport != null ? scroll.viewport : column.Find("Viewport")) as RectTransform;
+            var content = scroll != null ? scroll.content : null;
+
+            // Studio's rows are 90 wide; measure them rather than trust the panel's layout (plugins
+            // re-anchor these panels, so the viewport may or may not stretch with its column).
+            float rows = 0f;
+            if (content != null && Mathf.Approximately(content.anchorMin.x, content.anchorMax.x) && content.rect.width > 1f)
+                rows = content.rect.width;
+            if (rows < 40f || rows > 300f) rows = _rows > 0f ? _rows : 90f;
+            if (_rows <= 0f) _rows = rows;
             float width = Inset + rows + BarWidth;
 
-            column.sizeDelta = new Vector2(width, size.y);
-            column.anchoredPosition = new Vector2(_x, pos.y);
+            var cmin = column.offsetMin; var cmax = column.offsetMax;
+            _undo.Add(() => { if (column != null) { column.offsetMin = cmin; column.offsetMax = cmax; } });
+            float height = column.rect.height;
+            column.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, width);
+            column.anchoredPosition = new Vector2(_x, column.anchoredPosition.y);
             _x += width + Gap;
             _right = _x - Gap;
-            _bottom = Mathf.Max(_bottom, size.y);
-            _undo.Add(() => { if (column != null) { column.sizeDelta = size; column.anchoredPosition = pos; } });
+            _bottom = Mathf.Max(_bottom, height);
 
             if (viewport != null)
             {
-                var vpos = viewport.anchoredPosition;
-                var vmin = viewport.offsetMin;
-                var vmax = viewport.offsetMax;
-                if (fixedViewport) viewport.anchoredPosition = new Vector2(Inset, vpos.y);
+                var vmin = viewport.offsetMin; var vmax = viewport.offsetMax;
+                _undo.Add(() => { if (viewport != null) { viewport.offsetMin = vmin; viewport.offsetMax = vmax; } });
+                if (!Mathf.Approximately(viewport.anchorMin.x, viewport.anchorMax.x))
+                {
+                    // Stretches with the column: inset on the left, room for the bar on the right.
+                    viewport.offsetMin = new Vector2(Inset, viewport.offsetMin.y);
+                    viewport.offsetMax = new Vector2(-BarWidth, viewport.offsetMax.y);
+                }
                 else
                 {
-                    viewport.offsetMin = new Vector2(Inset, vmin.y);
-                    viewport.offsetMax = new Vector2(-BarWidth, vmax.y);
+                    // Pinned: as wide as the rows, its left edge Inset in.
+                    viewport.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, rows);
+                    float x = Inset + viewport.pivot.x * rows - viewport.anchorMin.x * width;
+                    viewport.anchoredPosition = new Vector2(x, viewport.anchoredPosition.y);
                 }
-                _undo.Add(() =>
-                {
-                    if (viewport == null) return;
-                    if (fixedViewport) viewport.anchoredPosition = vpos;
-                    else { viewport.offsetMin = vmin; viewport.offsetMax = vmax; }
-                });
             }
 
-            var scroll = column.GetComponent<ScrollRect>();
             var bar = scroll != null ? scroll.verticalScrollbar : null;
             if (bar != null)
             {
@@ -124,7 +130,7 @@ namespace HS2StudioTheme
             rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
             rt.pivot = new Vector2(0f, 1f);
             rt.anchoredPosition = new Vector2(Inset + 4f, -3f);
-            rt.sizeDelta = new Vector2(column.sizeDelta.x - 2f * Inset - 4f, 15f);
+            rt.sizeDelta = new Vector2(column.rect.width - 2f * Inset - 4f, 15f);
             var text = Labels.Configure(go.AddComponent<Text>(), Fonts.Regular, TextAnchor.MiddleLeft, 10, 8);
             text.text = title;
             text.color = Palette.White(0.55f);
@@ -188,8 +194,17 @@ namespace HS2StudioTheme
             }
         }
 
+        private float _diagAt = -1f;
+        private bool _wasOpen;
+
         private void UpdateColumns()
         {
+            // Diagnostics: what's in the columns half a second after they open.
+            var firstPanel = transform.Find(Panels[0]);
+            bool isOpen = firstPanel != null && firstPanel.gameObject.activeInHierarchy;
+            if (isOpen && !_wasOpen) _diagAt = Time.unscaledTime + 0.5f;
+            _wasOpen = isOpen;
+            if (_diagAt > 0f && Time.unscaledTime >= _diagAt) { _diagAt = -1f; ColumnDiag.Dump(transform, Panels); }
 
             // The deepest open column with a selection keeps the accent; earlier ones go grey.
             int deepest = -1;

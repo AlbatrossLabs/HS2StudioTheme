@@ -1,2 +1,8 @@
 bin/
 obj/
+*.user
+.vs/
+_to_delete/
+
+# Release zips are uploaded to GitHub Releases by release.bat, not committed.
+releases/

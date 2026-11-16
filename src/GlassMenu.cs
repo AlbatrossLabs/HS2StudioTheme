@@ -16,22 +16,35 @@ namespace HS2StudioTheme
             public string Label, Right;
             public bool Check, Separator, Disabled;
             public System.Action Act;
+            /// <summary>A slider row instead of a button: <see cref="Value"/> 0..1, <see cref="Slide"/> on change, <see cref="ValueText"/> shown at the right.</summary>
+            public bool Slider;
+            public float Value;
+            public System.Action<float> Slide;
+            public System.Func<string> ValueText;
             public static Item Sep() { return new Item { Separator = true }; }
         }
 
-        private const float ItemH = 24f, SepH = 9f, Pad = 6f;
+        private const float ItemH = 24f, SepH = 9f, Pad = 6f, SliderH = 42f;
         private static GlassMenu _open;
         private GameObject _canvasGo;
 
-        /// <summary>Show a menu with its top-left (or top-right if it would leave the screen) at a screen point.</summary>
-        public static void Show(Vector2 screenTopLeft, float width, IList<Item> items)
+        /// <summary>
+        /// Show a menu with its top-left (or, with <paramref name="alignRight"/>, its top-right) at a screen point.
+        /// <paramref name="like"/>: a canvas to match in scale, so the menu is the same size as the UI it opens from.
+        /// </summary>
+        public static void Show(Vector2 screenPoint, float width, IList<Item> items, Canvas like = null, bool alignRight = false)
         {
             CloseOpen();
             var go = new GameObject(ThemedButton.OwnPrefix + "Glass Menu", typeof(RectTransform));
             DontDestroyOnLoad(go);
             _open = go.AddComponent<GlassMenu>();
-            _open.Build(screenTopLeft, width, items);
+            _open._like = like != null ? like.rootCanvas : null;
+            _open._alignRight = alignRight;
+            _open.Build(screenPoint, width, items);
         }
+
+        private Canvas _like;
+        private bool _alignRight;
 
         public static void CloseOpen()
         {
@@ -51,9 +64,17 @@ namespace HS2StudioTheme
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 31500;
             var scaler = _canvasGo.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.matchWidthOrHeight = 0.5f;
+            if (_like != null)
+            {
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+                scaler.scaleFactor = _like.scaleFactor;
+            }
+            else
+            {
+                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+                scaler.referenceResolution = new Vector2(1920f, 1080f);
+                scaler.matchWidthOrHeight = 0.5f;
+            }
             _canvasGo.AddComponent<GraphicRaycaster>();
 
             // Clicking anywhere else closes it.
@@ -67,7 +88,7 @@ namespace HS2StudioTheme
             closer.onClick.AddListener(CloseOpen);
 
             float height = Pad * 2f;
-            foreach (var it in items) height += it.Separator ? SepH : ItemH;
+            foreach (var it in items) height += it.Separator ? SepH : it.Slider ? SliderH : ItemH;
 
             var panel = NewRect(transform, "Panel");
             var prt = (RectTransform)panel.transform;
@@ -80,6 +101,7 @@ namespace HS2StudioTheme
             RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRt, screen, null, out local);
             var size = canvasRt.rect.size;
             var p = local + size * 0.5f;
+            if (_alignRight) p.x -= width;
             p.x = Mathf.Clamp(p.x, 4f, size.x - width - 4f);
             p.y = Mathf.Clamp(p.y, height + 4f, size.y - 4f);
             prt.anchoredPosition = p;
@@ -98,6 +120,12 @@ namespace HS2StudioTheme
                     li.color = Palette.White(0.12f);
                     li.raycastTarget = false;
                     y -= SepH;
+                    continue;
+                }
+                if (it.Slider)
+                {
+                    BuildSlider(panel.transform, it, y, width);
+                    y -= SliderH;
                     continue;
                 }
                 var row = NewRect(panel.transform, it.Label);
@@ -127,6 +155,69 @@ namespace HS2StudioTheme
                 }
                 y -= ItemH;
             }
+        }
+
+        /// <summary>A labelled slider row: the label and its value on one line, a themed slider under it.</summary>
+        private static void BuildSlider(Transform panel, Item it, float y, float width)
+        {
+            var row = NewRect(panel, it.Label);
+            Place(row, Pad + 8f, y - 2f, width - 2f * Pad - 16f, SliderH - 4f);
+
+            var label = NewRect(row.transform, "Label");
+            var lrt = (RectTransform)label.transform;
+            lrt.anchorMin = new Vector2(0f, 1f); lrt.anchorMax = new Vector2(1f, 1f);
+            lrt.pivot = new Vector2(0.5f, 1f);
+            lrt.offsetMin = new Vector2(0f, -18f); lrt.offsetMax = Vector2.zero;
+            var lt = Labels.Configure(label.AddComponent<Text>(), Fonts.Regular, TextAnchor.MiddleLeft, 12, 8);
+            lt.text = it.Label;
+            lt.color = Palette.White(Palette.TextAlpha);
+            lt.raycastTarget = false;
+
+            var value = NewRect(row.transform, "Value");
+            var vrt = (RectTransform)value.transform;
+            vrt.anchorMin = lrt.anchorMin; vrt.anchorMax = lrt.anchorMax; vrt.pivot = lrt.pivot;
+            vrt.offsetMin = lrt.offsetMin; vrt.offsetMax = lrt.offsetMax;
+            var vt = Labels.Configure(value.AddComponent<Text>(), Fonts.Regular, TextAnchor.MiddleRight, 11, 8);
+            vt.color = Palette.White(0.55f);
+            vt.raycastTarget = false;
+
+            // A plain uGUI slider (track, fill area, handle), then themed like every other slider.
+            var sgo = NewRect(row.transform, "Slider");
+            var srt = (RectTransform)sgo.transform;
+            srt.anchorMin = new Vector2(0f, 0f); srt.anchorMax = new Vector2(1f, 0f);
+            srt.pivot = new Vector2(0.5f, 0f);
+            srt.offsetMin = new Vector2(2f, 2f); srt.offsetMax = new Vector2(-2f, 18f);
+            var bg = new GameObject("Background", typeof(RectTransform));
+            bg.transform.SetParent(sgo.transform, false);
+            var brt = (RectTransform)bg.transform;
+            brt.anchorMin = new Vector2(0f, 0.5f); brt.anchorMax = new Vector2(1f, 0.5f);
+            brt.sizeDelta = new Vector2(0f, 4f);
+            bg.AddComponent<Image>().color = Color.white;
+            var area = NewRect(sgo.transform, "Handle Area");
+            var art = (RectTransform)area.transform;
+            art.anchorMin = Vector2.zero; art.anchorMax = Vector2.one;
+            art.offsetMin = new Vector2(7f, 0f); art.offsetMax = new Vector2(-7f, 0f);
+            var handle = new GameObject("Handle", typeof(RectTransform));
+            handle.transform.SetParent(area.transform, false);
+            var hrt = (RectTransform)handle.transform;
+            hrt.sizeDelta = new Vector2(14f, 0f);
+            var himg = handle.AddComponent<Image>();
+            var slider = sgo.AddComponent<Slider>();
+            slider.handleRect = hrt;
+            slider.targetGraphic = himg;
+            slider.direction = UnityEngine.UI.Slider.Direction.LeftToRight;
+            slider.minValue = 0f; slider.maxValue = 1f;
+            slider.value = Mathf.Clamp01(it.Value);
+            ThemedSlider.Attach(slider);
+
+            var text = it.ValueText;
+            var slide = it.Slide;
+            vt.text = text != null ? text() : "";
+            slider.onValueChanged.AddListener(v =>
+            {
+                try { if (slide != null) slide(v); } catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Menu slider: " + e.Message); }
+                if (text != null) vt.text = text();
+            });
         }
 
         private static GameObject NewRect(Transform parent, string name)

@@ -286,12 +286,85 @@ namespace HS2StudioTheme
             items.Add(GlassMenu.Item.Sep());
             items.Add(new GlassMenu.Item { Label = "Add camera to the scene", Act = AddSceneCamera });
 
-            // Just under the button, left edges lined up.
-            anchor.GetWorldCorners(_corners);
-            var canvas = anchor.GetComponentInParent<Canvas>();
+            // Saved views (the number pills): clearing one (MoarCamz). Saving is the strip above each pill.
+            if (CameraSlots.Available)
+            {
+                bool any = false;
+                for (int i = 0; i < _slots.Count && i < _shown; i++)
+                {
+                    if (_slots[i].Value == null || _slots[i].Value.SlotEmpty) continue;
+                    if (!any) { items.Add(GlassMenu.Item.Sep()); any = true; }
+                    int index = _slots[i].Key;
+                    items.Add(new GlassMenu.Item { Label = "Clear view " + (index + 1), Act = () => CameraSlots.Clear(index) });
+                }
+            }
+
+            // The camera in use: how close to it things are still drawn (saved with the scene, per camera).
+            // With MoarCamz it's in the camera settings card instead, under FOV.
+            if (_moarCamz != null) { ShowUnderBar(items, 220f, true, anchor); return; }
+            items.Add(GlassMenu.Item.Sep());
+            items.Add(new GlassMenu.Item
+            {
+                Slider = true,
+                Label = "Culling distance",
+                Value = CameraClip.ToSlider(CameraClip.Current),
+                Slide = t => CameraClip.Set(CameraClip.FromSlider(t)),
+                ValueText = () => CameraClip.Format(CameraClip.Current) + (CameraClip.IsCustom ? "" : "  default"),
+            });
+            if (CameraClip.IsCustom)
+                items.Add(new GlassMenu.Item { Label = "Reset culling distance", Right = CameraClip.Format(CameraClip.Default), Act = CameraClip.Reset });
+
+            ShowUnderBar(items, 220f, true, anchor);
+        }
+
+        /// <summary>
+        /// A glass menu just under the camera bar's capsule, the same gap below it as the workspace sits under
+        /// the switches: right edges lined up (the camera menu), or left edge under <paramref name="from"/>.
+        /// </summary>
+        private void ShowUnderBar(List<GlassMenu.Item> items, float width, bool alignRight, RectTransform from)
+        {
+            var canvas = _row.GetComponentInParent<Canvas>();
             Camera cam = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
-            var screen = RectTransformUtility.WorldToScreenPoint(cam, _corners[0]) + new Vector2(0f, -4f);
-            GlassMenu.Show(screen, 190f, items);
+            var r = _row.rect;
+            float y = r.yMin - Pad - 6f;
+            Vector3 world;
+            if (alignRight) world = _row.TransformPoint(new Vector3(r.xMax + Pad, y, 0f));
+            else
+            {
+                from.GetWorldCorners(_corners);
+                float x = _row.InverseTransformPoint(_corners[0]).x;
+                world = _row.TransformPoint(new Vector3(x, y, 0f));
+            }
+            var screen = RectTransformUtility.WorldToScreenPoint(cam, world);
+            GlassMenu.Show(screen, width, items, canvas, alignRight);
+        }
+
+        /// <summary>Right-click on a camera slot: go to its view, or save the current view to it.</summary>
+        internal void OpenSlotMenu(SlotClicks slot)
+        {
+            var items = new List<GlassMenu.Item>
+            {
+                new GlassMenu.Item { Label = "Go to view " + slot.Number, Disabled = slot.Empty, Act = slot.Go },
+                new GlassMenu.Item { Label = "Save current view to " + slot.Number, Act = slot.DoSave },
+            };
+            if (CameraSlots.Available)
+            {
+                int index = slot.Number - 1;
+                items.Add(GlassMenu.Item.Sep());
+                items.Add(new GlassMenu.Item { Label = "Clear view " + slot.Number, Disabled = slot.Empty, Act = () => CameraSlots.Clear(index) });
+                items.Add(new GlassMenu.Item
+                {
+                    Label = "Remove slot " + slot.Number,
+                    Right = "later views move down",
+                    Act = () =>
+                    {
+                        if (!CameraSlots.Remove(index)) return;
+                        if (_revealed > MinSlots) _revealed--;
+                        UpdateSlots();
+                    },
+                });
+            }
+            ShowUnderBar(items, 240f, false, (RectTransform)slot.transform);
         }
 
         /// <summary>The workspace's own "new camera" button.</summary>
@@ -326,6 +399,8 @@ namespace HS2StudioTheme
                 Scan();
             }
             Centre();
+            CameraClip.Apply();
+            try { if (ExitDialog.active) ExitDialogTheme.StyleAll(); } catch (System.Exception) { }   // made when asked for
         }
 
         /// <summary>Theme new slots and work out which rects make up the bar.</summary>
@@ -360,14 +435,27 @@ namespace HS2StudioTheme
                 if (themed == null) continue;
                 if (!load)
                 {
-                    var slot = button.transform.parent;
-                    themed.Tooltip = () => "Save view to " + (int.Parse(slot.name) + 1);
+                    var slotT = button.transform.parent;
+                    themed.Tooltip = () => "Save the current view to " + (int.Parse(slotT.name) + 1);
+                }
+                var existing = load ? button.GetComponent<SlotClicks>() : null;
+                if (load && (existing == null || !existing.Live))
+                {
+                    // (A slot MoarCamz made by copying a themed one carries a copy of this that isn't set up.)
+                    var save = button.transform.parent.Find("Button Save");
+                    var clicks = existing != null ? existing : button.gameObject.AddComponent<SlotClicks>();
+                    clicks.Init(this, themed, button, save != null ? save.GetComponent<Button>() : null, n + 1);
+                    _undo.Add(() => { if (clicks != null) Destroy(clicks); });
+                    themed.Tooltip = () => clicks.Empty
+                        ? "Slot " + clicks.Number + " is empty  ·  click to save the current view here"
+                        : "Go to view " + clicks.Number + "  ·  the strip above saves to it";
                 }
                 if (!_buttons.Contains(themed)) _buttons.Add(themed);
             }
 
             UpdateSlots();
             UpdateSwitchLabel();
+            SceneNames.Apply();   // names given from the right-click menu, if Studio rewrote a row
 
             // MoarCamz's scrolling strip, or Studio's own slots.
             var scroll = GetComponentInChildren<ScrollRect>();
@@ -401,7 +489,10 @@ namespace HS2StudioTheme
             if (selector != null && selector.gameObject.activeInHierarchy)
             {
                 // The camera selector follows the last slot showing.
-                float x = (scroll != null && scroll.isActiveAndEnabled ? ((RectTransform)scroll.transform).offsetMax.x : SlotsRight(0f)) + 8f;
+                float x = (scroll != null && scroll.isActiveAndEnabled ? ((RectTransform)scroll.transform).offsetMax.x : SlotsRight(0f)) + 6f;
+                // MoarCamz's + sits right after the numbers, then the camera button.
+                if (_moarCamz != null) x = _moarCamz.PlaceAdd(_rt, x, RowTop - RowHeight / 2f) + 6f;
+                else x += 2f;
                 if (_slots.Count > 0) Fit(selector, new Vector2(x, selector.anchoredPosition.y), selector.sizeDelta);
                 _items.Add(selector);
             }
@@ -416,6 +507,7 @@ namespace HS2StudioTheme
                 foreach (var b in child.GetComponentsInChildren<Button>())
                 {
                     var brt = (RectTransform)b.transform;
+                    if (brt.lossyScale.x == 0f || brt.lossyScale.y == 0f) continue;   // hidden by the theme (MoarCamz's -)
                     if (OnTopRow(brt)) _items.Add(brt);
                 }
             }
@@ -515,6 +607,9 @@ namespace HS2StudioTheme
             if (_row.anchoredPosition != pos) _row.anchoredPosition = pos;
             if (_row.sizeDelta != size) _row.sizeDelta = size;
 
+            // MoarCamz's settings card: centred under the capsule, the same gap below it as the workspace.
+            if (_moarCamz != null) _moarCamz.AlignCard(_rt, (min + max) / 2f, RowTop - RowHeight - Pad - 6f);
+
             // Child positions are relative to the bar, so this offset doesn't depend on where the bar is now.
             var target = new Vector2(-(min + max) / 2f, _origPos.y - Drop);
             if ((_rt.anchoredPosition - target).sqrMagnitude > 0.25f) _rt.anchoredPosition = target;
@@ -527,6 +622,8 @@ namespace HS2StudioTheme
             foreach (var b in _buttons) if (b != null) b.Remove();
             _buttons.Clear();
             _undo.Run();
+            CameraClip.Restore();
+            GlassMenu.CloseOpen();
             if (_glass != null) DestroyImmediate(_glass);
             if (_rt != null) _rt.anchoredPosition = _origPos;
             Destroy(this);

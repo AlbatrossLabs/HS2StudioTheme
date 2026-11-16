@@ -12,29 +12,62 @@ namespace HS2StudioTheme
     {
         private const float KnobSize = 14f;
 
-        private Slider _slider;
-        private Image _track;
-        private Sprite _trackSprite;
-        private Image.Type _trackType;
-        private Color _trackColor;
-        private Image _handle;
-        private Color _handleColor;
+        // Serialised, so a copy another plugin makes of a themed slider (FK & IK's Size) keeps working.
+        [SerializeField] private bool _themed;
+        [SerializeField] private Slider _slider;
+        [SerializeField] private Image _track;
+        [SerializeField] private Sprite _trackSprite;
+        [SerializeField] private Image.Type _trackType;
+        [SerializeField] private Color _trackColor;
+        [SerializeField] private Image _handle;
+        [SerializeField] private Color _handleColor;
 
-        private RectTransform _fill;
-        private Image _fillImage;
-        private Image _knob;
-        private bool _removed;
+        [SerializeField] private RectTransform _fill;
+        [SerializeField] private Image _fillImage;
+        [SerializeField] private Image _knob;
+        [System.NonSerialized] private bool _removed, _live;
 
         public static ThemedSlider Attach(Slider slider)
         {
-            if (slider == null || slider.handleRect == null || slider.GetComponent<ThemedSlider>() != null) return null;
+            if (slider == null || slider.handleRect == null) return null;
+            foreach (var existing in slider.GetComponents<ThemedSlider>())
+            {
+                if (existing._removed) continue;
+                if (!existing._live) existing.Adopt();
+                if (existing._live) return null;
+            }
             var themed = slider.gameObject.AddComponent<ThemedSlider>();
             if (!themed.Init(slider)) { Destroy(themed); return null; }
             return themed;
         }
 
+        private void Awake()
+        {
+            if (_themed && !_live) Adopt();
+        }
+
+        /// <summary>A copy made by Instantiate: carry on with the copied parts, or tidy up if they didn't come along.</summary>
+        private void Adopt()
+        {
+            if (_slider == null || _track == null || _handle == null || _fill == null || _fillImage == null || _knob == null)
+            {
+                // Couldn't take over: drop whatever half-copy there is, leave the slider plain-ish.
+                _removed = true;
+                foreach (Transform t in GetComponentsInChildren<Transform>(true))
+                    if (t != transform && t.name.StartsWith(ThemedButton.OwnPrefix) && (t.name.EndsWith("Fill") || t.name.EndsWith("Knob"))) Destroy(t.gameObject);
+                if (_handle != null) _handle.color = _handleColor.a > 0f ? _handleColor : Color.white;
+                Destroy(this);
+                return;
+            }
+            _live = true;
+            Clones.Track(this, Remove);
+            Refresh();
+        }
+
         private bool Init(Slider slider)
         {
+            _themed = true;
+            _live = true;
             _slider = slider;
             var bg = slider.transform.Find("Background");
             _track = bg != null ? bg.GetComponent<Image>() : null;
@@ -82,7 +115,7 @@ namespace HS2StudioTheme
 
         public void Refresh()
         {
-            if (_removed) return;
+            if (_removed || !_live || _slider == null) return;
             bool on = _slider.IsInteractable();
             _fillImage.color = on ? Palette.Accent : Palette.White(Palette.DisabledAlpha);
             _knob.color = on ? Color.white : Palette.White(0.6f);
@@ -90,7 +123,7 @@ namespace HS2StudioTheme
 
         private void LateUpdate()
         {
-            if (_removed || _slider == null) return;
+            if (_removed || !_live || _slider == null) return;
             bool horizontal = _slider.direction == Slider.Direction.LeftToRight;
             _fill.gameObject.SetActive(horizontal);
             if (!horizontal) return;

@@ -470,7 +470,7 @@ namespace HS2StudioTheme
     /// the name, and the open/close and visibility pictures become a chevron and an eye. Studio's
     /// selection colours are intercepted and shown in the accent instead.
     /// </summary>
-    internal class WorkspaceRow : MonoBehaviour, IColorHook, IPointerEnterHandler, IPointerExitHandler
+    internal class WorkspaceRow : MonoBehaviour, IColorHook, IPointerEnterHandler, IPointerExitHandler, IRightClick
     {
         private const float IconRoom = 16f;
         private static readonly Color SelectedSingle = new Color(91f / 255f, 164f / 255f, 82f / 255f);
@@ -634,6 +634,25 @@ namespace HS2StudioTheme
             _writing = true;
             try { _image.color = c; }
             finally { _writing = false; }
+        }
+
+        /// <summary>Right-click: the object's menu (focus, show / hide, rename, its panels, duplicate, delete).</summary>
+        public void OnRightClick(Vector2 screen)
+        {
+            if (_removed || _node == null) return;
+            if (!StudioThemePlugin.CharacterMenu.Value || CharacterMenu.Instance == null) return;
+            Studio.ObjectCtrlInfo info = null;
+            try { Studio.Studio.Instance.dicInfo.TryGetValue(_node, out info); } catch (System.Exception) { }
+            if (info == null) return;
+            // Select it first, as Finder does, so the panels follow and the menu acts on what's highlighted.
+            try
+            {
+                var ctrl = Studio.Studio.Instance.treeNodeCtrl;
+                var sel = ctrl.selectNodes;
+                if (sel == null || System.Array.IndexOf(sel, _node) < 0) ctrl.SelectSingle(_node, false);
+            }
+            catch (System.Exception) { }
+            CharacterMenu.Instance.OpenFor(info, screen);
         }
 
         public void OnPointerEnter(PointerEventData e) { _hover = true; Refresh(); }

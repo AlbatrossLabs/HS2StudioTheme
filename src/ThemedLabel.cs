@@ -51,6 +51,7 @@ namespace HS2StudioTheme
             if (_source == null || _label == null) { _themed = false; _removed = true; Destroy(this); return; }
             _live = true;
             _last = null;
+            Clones.Track(this, Remove);
         }
 
         private void Init(TMPro.TMP_Text source, bool strong, int size, float alpha)

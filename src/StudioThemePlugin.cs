@@ -14,12 +14,13 @@ namespace HS2StudioTheme
     /// place, and turning the theme off puts every original sprite, colour and transition back.
     /// </summary>
     [BepInPlugin(GUID, PluginName, Version)]
+    [BepInDependency("marco.kkapi", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInProcess("StudioNEOV2")]
     public class StudioThemePlugin : BaseUnityPlugin
     {
         public const string GUID = "com.albatrosslabs.hs2.studiotheme";
         public const string PluginName = "Studio Theme";
-        public const string Version = "0.11.0";
+        public const string Version = "0.14.2";
 
         internal static StudioThemePlugin Instance;
         internal static ManualLogSource Log;
@@ -31,7 +32,7 @@ namespace HS2StudioTheme
         internal static ConfigEntry<string> FontName;
         internal static ConfigEntry<Vector2> WorkspaceSize;
         internal static ConfigEntry<string> ToolbarLayout;
-        internal static ConfigEntry<bool> FkPresetOnStart, FkPresetNow, CharacterMenu;
+        internal static ConfigEntry<bool> FkPresetOnStart, FkPresetNow, CharacterMenu, ThemePlugins, FreezeOnPose;
 
         private Studio.RootButtonCtrl _root;
         private readonly MainMenuTheme _theme = new MainMenuTheme();
@@ -72,6 +73,11 @@ namespace HS2StudioTheme
             CharacterMenu = Config.Bind("Studio", "Right-click character menu", true,
                 "Right-click a character in the scene (without dragging) for a menu: select, focus, show / hide, open their panels, FK / IK, clothing, duplicate, delete.");
 
+            FreezeOnPose = Config.Bind("Studio", "Freeze the animation when a pose is loaded", true,
+                "A pose puts the character on its saved animation at the saved moment, and the animation would play on from there (moving whatever the pose doesn't hold with FK / IK). On: the animation is paused at that moment (speed 0). Works for Studio's Pose list, Studio Browser and Pose Tools.");
+            ThemePlugins = Config.Bind("Look", "Theme other plugin panels", true,
+                "Give controls other plugins add to Studio's panels later (FK & IK, extra Joint rows...) the same look. Takes effect on the next start or theme toggle.");
+
             Enabled.SettingChanged += (s, e) => Reapply();
             GlassOpacity.SettingChanged += (s, e) => { Sprites.Clear(); Reapply(); };
             MenuLabels.SettingChanged += (s, e) => Reapply();
@@ -79,6 +85,16 @@ namespace HS2StudioTheme
             Accent.SettingChanged += (s, e) => { Sprites.Clear(); Reapply(); };   // check boxes bake the accent in
 
             Harmony.CreateAndPatchAll(typeof(Hooks), GUID);
+
+            // Cameras' clip distances are saved in the scene through KKAPI (when it's there).
+            try { RegisterSceneData(); }
+            catch (System.Exception e) { Log.LogWarning("Clip distances won't be saved with scenes (KKAPI not found): " + e.Message); }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static void RegisterSceneData()
+        {
+            ClipSceneData.Register();
         }
 
         /// <summary>Called once Studio's main menu has started.</summary>

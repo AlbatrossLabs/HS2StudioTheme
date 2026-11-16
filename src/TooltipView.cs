@@ -34,7 +34,8 @@ namespace HS2StudioTheme
             Vector2 top = canvasRt.InverseTransformPoint((corners[1] + corners[2]) / 2f);
             var area = canvasRt.rect;
 
-            bool above = bottom.y - 28f < area.yMin;
+            // Also above when another button sits right under this one (toolbar rows): the tip would cover it.
+            bool above = bottom.y - 28f < area.yMin || ButtonBelow(target);
             _rt.pivot = new Vector2(0.5f, above ? 0f : 1f);
             var pos = above ? top + new Vector2(0f, 6f) : bottom - new Vector2(0f, 6f);
             pos.x = Mathf.Clamp(pos.x, area.xMin + w / 2f + 4f, area.xMax - w / 2f - 4f);
@@ -42,6 +43,29 @@ namespace HS2StudioTheme
 
             _go.transform.SetAsLastSibling();
             _go.SetActive(true);
+        }
+
+        private static readonly Vector3[] Corners = new Vector3[4];
+
+        private static bool ButtonBelow(RectTransform target)
+        {
+            var parent = target.parent;
+            if (parent == null) return false;
+            target.GetWorldCorners(Corners);
+            Vector2 tMin = parent.InverseTransformPoint(Corners[0]), tMax = parent.InverseTransformPoint(Corners[2]);
+            float h = tMax.y - tMin.y;
+            foreach (Transform s in parent)
+            {
+                if (s == target || !s.gameObject.activeInHierarchy || s.GetComponent<Selectable>() == null) continue;
+                var rt = s as RectTransform;
+                if (rt == null || rt.lossyScale.x == 0f) continue;
+                rt.GetWorldCorners(Corners);
+                Vector2 sMin = parent.InverseTransformPoint(Corners[0]), sMax = parent.InverseTransformPoint(Corners[2]);
+                bool overlapsX = sMin.x < tMax.x && sMax.x > tMin.x;
+                bool justBelow = sMax.y <= tMin.y + 1f && sMax.y > tMin.y - h;
+                if (overlapsX && justBelow) return true;
+            }
+            return false;
         }
 
         public static void Hide(Transform target)

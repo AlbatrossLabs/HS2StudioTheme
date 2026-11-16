@@ -36,6 +36,15 @@ namespace HS2StudioTheme
 
         private void OnEnable() { _next = 0f; }
 
+        /// <summary>A copy another plugin made of a fitted panel: drop it (the copy can get its own).</summary>
+        public void ClearIfCopy()
+        {
+            if (_rt == null) DestroyImmediate(this);
+        }
+
+        /// <summary>Whether this is a working one (not a copy's leftover).</summary>
+        public bool Live { get { return _rt != null && !_removed; } }
+
         private void LateUpdate()
         {
             if (_removed || Time.unscaledTime < _next) return;
