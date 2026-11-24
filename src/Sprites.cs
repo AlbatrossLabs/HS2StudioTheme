@@ -129,6 +129,22 @@ namespace HS2StudioTheme
         }
 
         /// <summary>Forget generated sprites (after the opacity changes). Old ones are destroyed.</summary>
+        /// <summary>True when something outside the theme destroyed one of its textures or sprites.</summary>
+        public static bool AnyDestroyed()
+        {
+            foreach (var o in Owned) if (o == null) return true;
+            return false;
+        }
+
+        /// <summary>Forgets destroyed pictures, so they're made again the next time they're asked for.</summary>
+        public static void DropDestroyed()
+        {
+            Owned.RemoveAll(o => o == null);
+            var dead = new List<string>();
+            foreach (var kv in Cache) if (kv.Value == null || kv.Value.texture == null) dead.Add(kv.Key);
+            foreach (var k in dead) Cache.Remove(k);
+        }
+
         public static void Clear()
         {
             foreach (var o in Owned) if (o != null) Object.Destroy(o);
@@ -326,6 +342,7 @@ namespace HS2StudioTheme
             tex.wrapMode = TextureWrapMode.Clamp;
             tex.filterMode = FilterMode.Bilinear;
             tex.hideFlags = HideFlags.DontSave;
+            tex.name = OwnName + "texture";   // named: some clean-up plugins destroy unnamed runtime textures
             Owned.Add(tex);
             return tex;
         }

@@ -37,7 +37,7 @@ namespace HS2StudioTheme
         private float _dx = Cell, _dy = Cell;
         private int _rows = 5;
         private Vector2Int _previewCell = NoCell;
-        private static readonly Vector2Int NoCell = new Vector2Int(-1, -1);
+        private static readonly Vector2Int NoCell = new Vector2Int(int.MinValue, int.MinValue);   // (-1, -1) is a real cell off the left edge
         // Each top-level button or folder's cell (column, row), as the user placed it. Buttons not in it yet
         // (no layout saved, or a plugin's new button) go to their own natural cell, else the first free one.
         private readonly Dictionary<string, Vector2Int> _cellOf = new Dictionary<string, Vector2Int>();
@@ -513,16 +513,14 @@ namespace HS2StudioTheme
         {
             var byCell = new Dictionary<Vector2Int, string>();
             foreach (var kv in placed) if (kv.Key != key) byCell[kv.Value] = kv.Key;
-            // Cells kept for buttons that aren't showing count as occupied, and get pushed along too.
-            foreach (var kv in _cellOf)
-                if (kv.Key != key && !placed.ContainsKey(kv.Key) && FolderOf(kv.Key) == null && Valid(kv.Value) && !byCell.ContainsKey(kv.Value))
-                    byCell[kv.Value] = kv.Key;
+            // Cells kept for buttons that aren't showing (a plugin not loaded) are free to drop on: an empty-looking
+            // spot never pushes anything. That button finds a free cell when it shows up again.
+            var res = new Dictionary<string, Vector2Int>();
             string cur = key, other;
             var c = cell;
             int guard = 0;
             while (byCell.TryGetValue(c, out other) && guard++ < 500) { byCell[c] = cur; cur = other; c = Next(c); }
             byCell[c] = cur;
-            var res = new Dictionary<string, Vector2Int>();
             foreach (var kv in byCell) res[kv.Value] = kv.Key;
             return res;
         }
@@ -860,15 +858,20 @@ namespace HS2StudioTheme
             {
                 // Let go inside its own folder: stays in it.
             }
-            else
+            else if (_previewCell != NoCell)
             {
-                // Anywhere else: into the cell under the pointer (pushing along whatever is there).
-                var cell = SlotAt(Local(screen), placed);
-                var result = WithDrop(placed, key, cell);
+                // Anywhere else: exactly what the preview showed while dragging (an empty cell, or a taken one
+                // whose buttons had already made room). Re-judging the cell here used to push a whole column
+                // down when the button was let go next to a button before anything had moved.
+                var result = WithDrop(placed, key, _previewCell);
                 RemoveEverywhere(key);
                 foreach (var kv in result) _cellOf[kv.Key] = kv.Value;
+                var used = new HashSet<Vector2Int>(result.Values);
+                foreach (var k in _cellOf.Keys.ToList())
+                    if (!result.ContainsKey(k) && !placed.ContainsKey(k) && used.Contains(_cellOf[k])) _cellOf.Remove(k);
                 if (from != null && _open == from && from.Members.Count == 0) Close();
             }
+            // else: let go beside a taken cell before it made room: nothing changes, the button goes back.
             Tidy();
         }
 

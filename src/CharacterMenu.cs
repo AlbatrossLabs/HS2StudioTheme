@@ -53,7 +53,10 @@ namespace HS2StudioTheme
             if (_menu != null && Input.GetKeyDown(KeyCode.Escape)) Close();
             if (Input.GetMouseButtonDown(1))
             {
-                if (_menu != null) { Close(); _down = false; return; }   // a right-click while open just closes it
+                // A right-click while the menu is open closes it, and opens the next one if this click lands
+                // on something else (the other character): no second click needed.
+                if (_menu != null && PointerOverMenu()) { Close(); _down = false; return; }
+                if (_menu != null) Close();
                 _down = true;
                 _downOverUi = PointerOverUi();
                 _downPos = Input.mousePosition;
@@ -106,6 +109,15 @@ namespace HS2StudioTheme
             return null;
         }
 
+        /// <summary>The pointer is on the open menu itself (or its clothing flyout).</summary>
+        private bool PointerOverMenu()
+        {
+            var mouse = (Vector2)Input.mousePosition;
+            if (_panel != null && RectTransformUtility.RectangleContainsScreenPoint(_panel, mouse, null)) return true;
+            var fly = _flyout != null ? _flyout.transform as RectTransform : null;
+            return fly != null && fly.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(fly, mouse, null);
+        }
+
         private static bool PointerOverUi()
         {
             try { if (Studio.Studio.Instance != null && Studio.Studio.Instance.isInputNow) return true; } catch (System.Exception) { }
@@ -151,30 +163,63 @@ namespace HS2StudioTheme
             return _camera;
         }
 
-        /// <summary>The nearest visible character whose body or head is under the pointer.</summary>
+        /// <summary>
+        /// The character under the pointer. Candidates are the characters whose meshes' boxes the ray goes
+        /// through; boxes are loose and overlap when two characters stand close, so among those the one with
+        /// a bone closest to the ray (by angle, so near and far compare fairly) wins.
+        /// </summary>
         private static Studio.OCIChar Pick(Vector3 screen)
         {
             var cam = SceneCamera();
             if (cam == null) return null;
             var ray = cam.ScreenPointToRay(screen);
             Studio.OCIChar best = null;
-            float bestDist = float.MaxValue;
+            float bestScore = float.MaxValue;
             foreach (var info in Studio.Studio.Instance.dicObjectCtrl.Values)
             {
                 var c = info as Studio.OCIChar;
                 if (c == null || c.charInfo == null || !c.charInfo.visibleAll) continue;
-                foreach (var part in new[] { c.charInfo.objBody, c.charInfo.objHead })
+                if (!RayHitsMeshes(c, ray)) continue;
+                float score = BoneAngle(c, ray);
+                if (score < bestScore) { bestScore = score; best = c; }
+            }
+            return best;
+        }
+
+        private static bool RayHitsMeshes(Studio.OCIChar c, Ray ray)
+        {
+            foreach (var part in new[] { c.charInfo.objBody, c.charInfo.objHead })
+            {
+                if (part == null) continue;
+                foreach (var r in part.GetComponentsInChildren<SkinnedMeshRenderer>(false))
                 {
-                    if (part == null) continue;
-                    foreach (var r in part.GetComponentsInChildren<SkinnedMeshRenderer>(false))
-                    {
-                        float d;
-                        if (!r.enabled || !r.bounds.IntersectRay(ray, out d) || d >= bestDist) continue;
-                        bestDist = d;
-                        best = c;
-                    }
+                    float d;
+                    if (r.enabled && r.bounds.IntersectRay(ray, out d)) return true;
                 }
             }
+            return false;
+        }
+
+        private static readonly List<Transform> Bones = new List<Transform>();
+
+        /// <summary>The smallest angle (radians, from the camera) between the ray and one of the character's bones.</summary>
+        private static float BoneAngle(Studio.OCIChar c, Ray ray)
+        {
+            var root = c.charInfo.objBodyBone;
+            if (root == null) return 1f;
+            root.GetComponentsInChildren(false, Bones);
+            float best = float.MaxValue;
+            foreach (var b in Bones)
+            {
+                if (b == null || !b.name.StartsWith("cf_J_")) continue;
+                var v = b.position - ray.origin;
+                float t = Vector3.Dot(v, ray.direction);
+                if (t <= 0.01f) continue;
+                float perp = (v - ray.direction * t).magnitude;
+                float angle = perp / t;
+                if (angle < best) best = angle;
+            }
+            Bones.Clear();
             return best;
         }
 
@@ -215,6 +260,7 @@ namespace HS2StudioTheme
                 items.Add(new Item { Label = "Animations…", Act = () => OpenPanel(2) });
                 items.Add(new Item { Label = "Outfit…", Act = () => OpenPanel(4) });
                 items.Add(new Item { Label = "Clothing", Shortcut = "›", KeepOpen = true, Act = OpenClothing });
+                items.Add(new Item { Label = "Swap character…", Act = SwapCharacter });
                 items.Add(Item.Sep());
                 items.Add(new Item { Label = (info.enableFK ? "✓  " : "     ") + "FK", Act = () => Kinematic(Studio.OICharInfo.KinematicMode.FK) });
                 items.Add(new Item { Label = (info.enableIK ? "✓  " : "     ") + "IK", Act = () => Kinematic(Studio.OICharInfo.KinematicMode.IK) });
@@ -420,6 +466,39 @@ namespace HS2StudioTheme
             if (root != null && root.select != 1) root.OnClick(1);
         }
 
+        /// <summary>
+        /// Selects the character and opens Add › Girls (or Boys) for the matching sex, where Studio's
+        /// "Change character" puts a different card in its place, keeping its pose and position.
+        /// </summary>
+        private void SwapCharacter()
+        {
+            var chara = _char;
+            if (chara == null || !Select()) return;
+            StartCoroutine(OpenCharaListLater(chara.oiCharInfo.sex == 0 ? "Male" : "Female", chara.oiCharInfo.sex == 0 ? 1 : 0));
+        }
+
+        private System.Collections.IEnumerator OpenCharaListLater(string which, int fallback)
+        {
+            yield return null;
+            var root = Studio.Studio.Instance.rootButtonCtrl;
+            if (root != null && root.select != 0) root.OnClick(0);   // Add
+            yield return null;
+            var add = Object.FindObjectOfType<Studio.AddButtonCtrl>();
+            if (add == null) yield break;
+            var tr = Traverse.Create(add);
+            var infos = tr.Field("commonInfo").GetValue() as System.Array;
+            int index = fallback;
+            if (infos != null)
+                for (int i = 0; i < infos.Length; i++)
+                {
+                    var obj = Traverse.Create(infos.GetValue(i)).Field("obj").GetValue<GameObject>();
+                    if (obj == null) continue;
+                    bool female = obj.name.EndsWith("Female");
+                    if (which == "Female" ? female : obj.name.EndsWith("Male") && !female) { index = i; break; }
+                }
+            if (tr.Field("select").GetValue<int>() != index) add.OnClick(index);
+        }
+
         // ------------------------------------------------------------------ rename
 
         /// <summary>A small glass box with the name in a text field: Enter keeps it, Esc or a click elsewhere cancels.</summary>
@@ -579,7 +658,7 @@ namespace HS2StudioTheme
 
         private void Close()
         {
-            if (_menu != null) Destroy(_menu);
+            if (_menu != null) { _menu.SetActive(false); Destroy(_menu); }   // off at once: this frame's raycasts mustn't see it
             _menu = null;
             _flyout = null;
             _panel = null;

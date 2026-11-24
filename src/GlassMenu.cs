@@ -44,17 +44,60 @@ namespace HS2StudioTheme
         }
 
         private Canvas _like;
+        private float _scale = 1f;
         private bool _alignRight;
 
-        public static void CloseOpen()
+        public static void CloseOpen() { CloseOpen(null); }
+
+        public static void CloseOpen(string why)
         {
-            if (_open != null) Destroy(_open.gameObject);
+            if (_open != null)
+            {
+                if (why != null) StudioThemePlugin.Log.LogDebug("Glass menu closed: " + why);
+                Destroy(_open.gameObject);
+            }
             _open = null;
         }
 
+        private float _shownAt;
+
+        private struct Row { public RectTransform Rt; public System.Action Act; public bool Disabled; }
+        private readonly List<Row> _rows = new List<Row>();
+        private RectTransform _panel;
+        private int _downRow = -2;   // -2: no press; -1: pressed outside the panel; >= 0: pressed on that row
+
+        /// <summary>
+        /// Clicks are read straight from the mouse here, not through Unity's UI events: in Studio a click on
+        /// a row could land on the full-screen catcher behind the menu instead (the menu closed without doing
+        /// anything). A press and release on the same row chooses it; a click outside the menu closes it.
+        /// </summary>
         private void Update()
         {
-            if (Input.GetKeyDown(KeyCode.Escape)) CloseOpen();
+            if (Input.GetKeyDown(KeyCode.Escape)) { CloseOpen("Esc"); return; }
+            if (_panel == null) return;
+            var mouse = (Vector2)Input.mousePosition;
+            if (Input.GetMouseButtonDown(0)) _downRow = RowAt(mouse);
+            if (!Input.GetMouseButtonUp(0) || _downRow == -2) return;
+            int up = RowAt(mouse), down = _downRow;
+            _downRow = -2;
+            if (Time.unscaledTime - _shownAt < 0.25f) return;   // the click that opened the menu
+            if (up == -1 && down == -1) { CloseOpen("a click outside"); return; }
+            if (up >= 0 && up == down && !_rows[up].Disabled)
+            {
+                var act = _rows[up].Act;
+                CloseOpen();
+                try { if (act != null) act(); } catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Menu: " + e.Message); }
+            }
+        }
+
+        /// <summary>The row under a screen point; -3 on the menu but not on a row (a slider, a gap), -1 outside it.</summary>
+        private int RowAt(Vector2 screen)
+        {
+            if (!RectTransformUtility.RectangleContainsScreenPoint(_panel, screen, null)) return -1;   // (rows scrolled out of view lie outside it)
+            for (int i = 0; i < _rows.Count; i++)
+                if (_rows[i].Rt != null && _rows[i].Rt.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(_rows[i].Rt, screen, null))
+                    return i;
+            return -3;
         }
 
         private void Build(Vector2 screen, float width, IList<Item> items)
@@ -63,18 +106,14 @@ namespace HS2StudioTheme
             var canvas = _canvasGo.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 31500;
+            // A fixed scale worked out here (Studio's own, or 1080p-relative), so positions can be computed at
+            // once: a new canvas hasn't sized itself yet in this frame, and measuring it put the menu in the
+            // wrong place (off to the side, or out of sight, so the next click just closed it).
             var scaler = _canvasGo.AddComponent<CanvasScaler>();
-            if (_like != null)
-            {
-                scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
-                scaler.scaleFactor = _like.scaleFactor;
-            }
-            else
-            {
-                scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-                scaler.referenceResolution = new Vector2(1920f, 1080f);
-                scaler.matchWidthOrHeight = 0.5f;
-            }
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ConstantPixelSize;
+            _scale = _like != null && _like.scaleFactor > 0.01f ? _like.scaleFactor
+                : Mathf.Pow(2f, Mathf.Lerp(Mathf.Log(Screen.width / 1920f, 2f), Mathf.Log(Screen.height / 1080f, 2f), 0.5f));
+            scaler.scaleFactor = _scale;
             _canvasGo.AddComponent<GraphicRaycaster>();
 
             // Clicking anywhere else closes it.
@@ -83,9 +122,7 @@ namespace HS2StudioTheme
             lrt.anchorMin = Vector2.zero; lrt.anchorMax = Vector2.one;
             lrt.offsetMin = lrt.offsetMax = Vector2.zero;
             layer.AddComponent<Image>().color = Color.clear;
-            var closer = layer.AddComponent<Button>();
-            closer.transition = Selectable.Transition.None;
-            closer.onClick.AddListener(CloseOpen);
+            _shownAt = Time.unscaledTime;   // the catcher only blocks clicks to Studio; Update reads them
 
             float height = Pad * 2f;
             foreach (var it in items) height += it.Separator ? SepH : it.Slider ? SliderH : ItemH;
@@ -94,20 +131,40 @@ namespace HS2StudioTheme
             var prt = (RectTransform)panel.transform;
             prt.anchorMin = prt.anchorMax = Vector2.zero;
             prt.pivot = new Vector2(0f, 1f);
-            prt.sizeDelta = new Vector2(width, height);
-            var canvasRt = (RectTransform)transform;
-            Canvas.ForceUpdateCanvases();
-            Vector2 local;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(canvasRt, screen, null, out local);
-            var size = canvasRt.rect.size;
-            var p = local + size * 0.5f;
+            // Canvas units from the bottom-left corner: screen pixels over the scale.
+            var size = new Vector2(Screen.width, Screen.height) / _scale;
+            var p = screen / _scale;
             if (_alignRight) p.x -= width;
             p.x = Mathf.Clamp(p.x, 4f, size.x - width - 4f);
-            p.y = Mathf.Clamp(p.y, height + 4f, size.y - 4f);
+            // Taller than the room below the point (a scene with many cameras): it scrolls.
+            float room = Mathf.Max(160f, p.y - 8f);
+            float shown = Mathf.Min(height, room);
+            p.y = Mathf.Clamp(p.y, shown + 4f, size.y - 4f);
+            prt.sizeDelta = new Vector2(width, shown);
             prt.anchoredPosition = p;
             var bg = panel.AddComponent<Image>();
             bg.sprite = Sprites.Panel;
             bg.type = Image.Type.Sliced;
+            _panel = prt;
+
+            if (height > shown + 0.5f)
+            {
+                var viewport = NewRect(panel.transform, "Viewport");
+                var vrt = (RectTransform)viewport.transform;
+                vrt.anchorMin = Vector2.zero; vrt.anchorMax = Vector2.one;
+                vrt.offsetMin = vrt.offsetMax = Vector2.zero;
+                viewport.AddComponent<RectMask2D>();
+                var content = NewRect(viewport.transform, "Content");
+                var crt = (RectTransform)content.transform;
+                crt.anchorMin = new Vector2(0f, 1f); crt.anchorMax = new Vector2(1f, 1f);
+                crt.pivot = new Vector2(0.5f, 1f);
+                crt.sizeDelta = new Vector2(0f, height);
+                var scroll = panel.AddComponent<ScrollRect>();
+                scroll.viewport = vrt; scroll.content = crt;
+                scroll.horizontal = false; scroll.movementType = ScrollRect.MovementType.Clamped;
+                scroll.scrollSensitivity = ItemH;
+                panel = content;   // rows go in the scrolling content
+            }
 
             float y = -Pad;
             foreach (var it in items)
@@ -135,13 +192,10 @@ namespace HS2StudioTheme
                 button.targetGraphic = img;
                 button.interactable = !it.Disabled;
                 var act = it.Act;
-                button.onClick.AddListener(() =>
-                {
-                    CloseOpen();
-                    try { if (act != null) act(); } catch (System.Exception e) { StudioThemePlugin.Log.LogWarning("Menu: " + e.Message); }
-                });
+                _rows.Add(new Row { Rt = (RectTransform)row.transform, Act = act, Disabled = it.Disabled });   // clicked through Update
                 var b = ThemedButton.Attach(button, ButtonKind.Row, null, (it.Check ? "✓  " : "     ") + it.Label);
                 if (b == null) continue;
+                b.AlignLabelLeft(8f);   // menu rows read from the left, like a Mac menu
                 if (!string.IsNullOrEmpty(it.Right))
                 {
                     var sc = NewRect(row.transform, "Right");

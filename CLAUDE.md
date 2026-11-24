@@ -20,3 +20,6 @@ Albatross Labs (not Linkira Studios).
 
 ## Working copy
 The user commits and pushes with GitHub Desktop. Don't rewrite history or force-push.
+
+## Latest build for sharing
+See `D:\AI\Projects\CLAUDE.md` (Build layout): installed to `plugins\AlbatrossLabs\HS2StudioTheme\`, and each Release build kept in `bin\Releasev<version>\` with `HS2StudioTheme-VERSION.txt` beside the DLL.

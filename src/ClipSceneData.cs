@@ -7,7 +7,7 @@ namespace HS2StudioTheme
 {
     /// <summary>
     /// Saves the theme's per-scene data in the scene file, through KKAPI: the cameras' culling distances
-    /// (<see cref="CameraClip"/>) and the names given to objects from the right-click menu (<see cref="SceneNames"/>).
+    /// (<see cref="CameraClip"/>), their Graphics presets (<see cref="CameraPresets"/>) and the names given to objects from the right-click menu (<see cref="SceneNames"/>).
     /// </summary>
     internal class ClipSceneData : SceneCustomFunctionController
     {
@@ -21,16 +21,18 @@ namespace HS2StudioTheme
         {
             var clip = CameraClip.Serialize();
             var names = SceneNames.Serialize();
-            if (clip == null && names == null) { SetExtendedData(null); return; }
+            var presets = CameraPresets.Serialize();
+            if (clip == null && names == null && presets == null) { SetExtendedData(null); return; }
             var data = new PluginData { version = 1 };
             if (clip != null) data.data["clip"] = clip;
             if (names != null) data.data["names"] = names;
+            if (presets != null) data.data["presets"] = presets;
             SetExtendedData(data);
         }
 
         protected override void OnSceneLoad(SceneOperationKind operation, ReadOnlyDictionary<int, ObjectCtrlInfo> loadedItems)
         {
-            if (operation != SceneOperationKind.Import) { CameraClip.Clear(); SceneNames.Clear(); }
+            if (operation != SceneOperationKind.Import) { CameraClip.Clear(); SceneNames.Clear(); CameraPresets.Clear(); }
             if (operation == SceneOperationKind.Clear) return;
             var data = GetExtendedData();
             if (data == null || data.data == null) return;
@@ -43,6 +45,7 @@ namespace HS2StudioTheme
             object value;
             if (data.data.TryGetValue("clip", out value)) CameraClip.Deserialize(value as string, operation == SceneOperationKind.Load, remap);
             if (data.data.TryGetValue("names", out value)) SceneNames.Deserialize(value as string, remap);
+            if (data.data.TryGetValue("presets", out value)) CameraPresets.Deserialize(value as string, operation == SceneOperationKind.Load, remap);
         }
     }
 }

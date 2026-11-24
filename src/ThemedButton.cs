@@ -79,6 +79,13 @@ namespace HS2StudioTheme
             _dirty = true;
         }
 
+        /// <summary>A destructive primary button (Reset, Delete): filled red.</summary>
+        public void EmphasizeDestructive()
+        {
+            _emphasis = 3;
+            _dirty = true;
+        }
+
         /// <summary>The icon image, if the button has one (toolbar folders show these in miniature).</summary>
         public Image IconImage { get { return _icon; } }
         [NonSerialized] private bool _activeExtra;
@@ -363,9 +370,18 @@ namespace HS2StudioTheme
 
         private void ShowTooltip()
         {
-            if (Tooltip == null) return;
             string text = null;
-            try { text = Tooltip(); } catch { }
+            if (Tooltip != null) { try { text = Tooltip(); } catch { } }
+            else if (_label != null)
+            {
+                // A row whose name ends in "…": the whole name, beside the list.
+                var m = Labels.Frame(_label).GetComponent<Marquee>();
+                if (m != null && m.IsTruncated && !string.IsNullOrEmpty(m.FullText))
+                {
+                    TooltipView.ShowBeside((RectTransform)transform, m.FullText);
+                    return;
+                }
+            }
             if (!string.IsNullOrEmpty(text)) TooltipView.Show((RectTransform)transform, text);
         }
 
@@ -487,7 +503,7 @@ namespace HS2StudioTheme
             bool enabled = _button != null && _button.IsInteractable();
             if (_emphasis > 0)
             {
-                var want = _emphasis == 1 && enabled && !Sel ? Sprites.Row : Sprites.Panel;
+                var want = (_emphasis == 1 || _emphasis == 3) && enabled && !Sel ? Sprites.Row : Sprites.Panel;
                 if (_themeSprite != want) { _themeSprite = want; _image.sprite = want; _image.type = Image.Type.Sliced; }
             }
 
@@ -504,7 +520,7 @@ namespace HS2StudioTheme
             else fg = Palette.White(Palette.TextAlpha);
             if (!Sel && enabled && LabelTint.HasValue) fg = LabelTint.Value;
             if (!Sel && enabled && _emphasis == 1) fg = Palette.OnAccent();
-            else if (!Sel && enabled && _emphasis == 2) fg = Palette.White(0.95f);
+            else if (!Sel && enabled && (_emphasis == 2 || _emphasis == 3)) fg = Palette.White(0.95f);
 
             if (_label != null)
             {
@@ -559,9 +575,9 @@ namespace HS2StudioTheme
         {
             bool enabled = _button != null && _button.IsInteractable();
             if (Sel) return _muted ? Palette.White(0.16f) : Palette.Accent;
-            if (_emphasis == 1 && enabled)
+            if ((_emphasis == 1 || _emphasis == 3) && enabled)
             {
-                var a = Palette.Accent;
+                var a = _emphasis == 3 ? Palette.Hex("FF453A") : Palette.Accent;
                 float k = _pressed ? 0.82f : _hover ? 1.12f : 1f;
                 return new Color(Mathf.Min(1f, a.r * k), Mathf.Min(1f, a.g * k), Mathf.Min(1f, a.b * k), 1f);
             }
@@ -628,6 +644,17 @@ namespace HS2StudioTheme
             }
         }
 
+        /// <summary>The button's own label reads from the left (menu rows), <paramref name="pad"/> in from the edge.</summary>
+        public void AlignLabelLeft(float pad)
+        {
+            if (_label == null) return;
+            _label.alignment = TextAnchor.MiddleLeft;
+            var rt = _label.rectTransform;
+            rt.offsetMin = new Vector2(pad, rt.offsetMin.y);
+            var m = _label.GetComponent<Marquee>() ?? _label.GetComponentInParent<Marquee>();
+            if (m != null) m.SetAlignment(TextAnchor.MiddleLeft);
+        }
+
         internal static string TextOf(Graphic g)
         {
             var tmp = g as TMPro.TMP_Text;
@@ -669,7 +696,11 @@ namespace HS2StudioTheme
             rt.offsetMax = offsetMax;
             var t = Labels.Configure(go.AddComponent<Text>(), Fonts.Regular, align, maxSize, minSize);
             // Rows and push buttons keep their text size and scroll long text instead of shrinking it.
-            if (_kind == ButtonKind.Row || _kind == ButtonKind.Push && ((RectTransform)transform).rect.width >= 48f) Marquee.Wrap(t);
+            if (_kind == ButtonKind.Row || _kind == ButtonKind.Push && ((RectTransform)transform).rect.width >= 48f)
+            {
+                var m = Marquee.Wrap(t);
+                if (m != null && _kind == ButtonKind.Row) m.AllowShrink = false;   // rows: one size, "…" and a tooltip
+            }
             return t;
         }
 

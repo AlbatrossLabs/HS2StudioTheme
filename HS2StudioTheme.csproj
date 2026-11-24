@@ -8,10 +8,10 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <DebugType>embedded</DebugType>
-    <Version>0.15.5</Version>
+    <Version>0.17.3</Version>
 
     <!--
-      Every build copies the DLL to BepInEx\plugins\HS2StudioTheme\ under this folder.
+      Every build copies the DLL to BepInEx\plugins\AlbatrossLabs\HS2StudioTheme\ under this folder.
       Point it elsewhere with -p:HS2Dir="D:\Other\HS2", or skip the copy with -p:SkipDeploy=true (release.bat does)
       TextMeshPro is referenced from the game's own Managed folder under this path too.
     -->
@@ -52,9 +52,16 @@
   </ItemGroup>
 
   <Target Name="DeployToHS2" AfterTargets="Build" Condition="'$(HS2Dir)' != '' and '$(SkipDeploy)' != 'true'">
-    <MakeDir Directories="$(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
-    <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(HS2Dir)\BepInEx\plugins\HS2StudioTheme" />
+    <MakeDir Directories="$(HS2Dir)\BepInEx\plugins\AlbatrossLabs\HS2StudioTheme" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll" DestinationFolder="$(HS2Dir)\BepInEx\plugins\AlbatrossLabs\HS2StudioTheme" />
+    <Message Importance="high" Text="Deployed $(AssemblyName).dll to $(HS2Dir)\BepInEx\plugins\AlbatrossLabs\HS2StudioTheme" />
   </Target>
 
+
+  <!-- Every Release build also keeps a copy of itself in bin\Releasev<version>\ (git-ignored): a local history of builds. -->
+  <Target Name="CopyToReleaseFolder" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <MakeDir Directories="$(MSBuildThisFileDirectory)bin\Releasev$(Version)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MSBuildThisFileDirectory)bin\Releasev$(Version)" />
+    <Message Importance="high" Text="Copied $(TargetFileName) to bin\Releasev$(Version)" />
+  </Target>
 </Project>

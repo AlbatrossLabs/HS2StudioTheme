@@ -38,6 +38,56 @@ namespace HS2StudioTheme
             try { ExitDialogTheme.StyleAll(); } catch (System.Exception) { }
         }
 
+        [HarmonyPostfix, HarmonyPatch(typeof(Studio.ExitScene), "Start")]
+        private static void ExitSceneStart(Studio.ExitScene __instance)
+        {
+            try { ExitDialogTheme.StyleStudioScene(__instance, "yes", "no", "Exit Studio Neo V2?", null); } catch (System.Exception) { }
+        }
+
+        [HarmonyPostfix, HarmonyPatch(typeof(Studio.CheckScene), "Start")]
+        private static void CheckSceneStart(Studio.CheckScene __instance)
+        {
+            try { ExitDialogTheme.StyleStudioScene(__instance, "buttonYes", "buttonNo", null, Studio.CheckScene.sprite); } catch (System.Exception) { }
+        }
+
+        // Camera slots: the culling distance and the Graphics preset are saved and loaded with each view.
+        [HarmonyPostfix, HarmonyPatch(typeof(StudioScene), "OnClickSaveCamera")]
+        private static void SaveCameraSlot(int __0)
+        {
+            try { CameraClip.SaveSlot(__0); } catch (System.Exception) { }
+            try { CameraPresets.SaveSlot(__0); } catch (System.Exception) { }
+        }
+
+        [HarmonyPrefix, HarmonyPatch(typeof(StudioScene), "OnClickLoadCamera")]
+        private static void LoadingCameraSlot() { CameraPresets.SlotLoading(); }
+
+        [HarmonyPostfix, HarmonyPatch(typeof(StudioScene), "OnClickLoadCamera")]
+        private static void LoadCameraSlot(int __0)
+        {
+            try { CameraClip.LoadSlot(__0); } catch (System.Exception) { }
+            try { CameraPresets.LoadSlot(__0); } catch (System.Exception e) { StudioThemePlugin.Log.LogDebug("Camera preset: " + e.Message); }
+        }
+
+        // A camera object (or back to the free camera): its Graphics preset.
+        [HarmonyPostfix, HarmonyPatch(typeof(Studio.Studio), "ChangeCamera", new[] { typeof(Studio.OCICamera), typeof(bool), typeof(bool) })]
+        private static void CameraChanged()
+        {
+            try { CameraPresets.CameraChanged(); } catch (System.Exception e) { StudioThemePlugin.Log.LogDebug("Camera preset: " + e.Message); }
+        }
+
+        // Studio's confirmations only carry a picture of their question: these say what's being asked.
+        [HarmonyPrefix, HarmonyPatch(typeof(Studio.SystemButtonCtrl), "OnClickInit")]
+        private static void AskReset() { ExitDialogTheme.Ask("Delete everything and reset the scene?", "Reset"); }
+
+        [HarmonyPrefix, HarmonyPatch(typeof(Studio.SceneLoadScene), "OnClickDelete")]
+        private static void AskDeleteScene() { ExitDialogTheme.Ask("Delete this scene?", "Delete"); }
+
+        [HarmonyPrefix, HarmonyPatch(typeof(Studio.PauseRegistrationList), "OnClickDelete")]
+        private static void AskDeletePose() { ExitDialogTheme.Ask("Delete this pose?", "Delete"); }
+
+        [HarmonyPrefix, HarmonyPatch(typeof(Studio.VoiceRegistrationList), "OnClickDelete")]
+        private static void AskDeleteVoice() { ExitDialogTheme.Ask("Delete this voice list?", "Delete"); }
+
         [HarmonyPostfix, HarmonyPatch(typeof(ExitDialog), "Initialize")]
         private static void ExitDialogInitialize(ExitDialog __instance)
         {

@@ -15,6 +15,34 @@ namespace HS2StudioTheme
         public const float Min = 0.01f, Max = 500f;
         private static readonly Dictionary<int, float> ByCamera = new Dictionary<int, float>();
         private static float _free = -1f, _default = -1f;
+
+        /// <summary>The culling distance saved with each camera slot (view), by slot index; -1 = Studio's default.</summary>
+        private static readonly Dictionary<int, float> BySlot = new Dictionary<int, float>();
+
+        /// <summary>A view is being saved to slot <paramref name="no"/>: remember the distance in use with it.</summary>
+        public static void SaveSlot(int no)
+        {
+            BySlot[no] = IsCustom ? Current : -1f;
+        }
+
+        /// <summary>Slot <paramref name="no"/>'s view was loaded (into the free camera): its distance comes back too.</summary>
+        public static void LoadSlot(int no)
+        {
+            float v;
+            if (!BySlot.TryGetValue(no, out v)) return;   // saved before slots kept one: leave the distance alone
+            _free = v > 0f ? Mathf.Clamp(v, Min, Max) : -1f;
+            _lastWant = -1f;
+        }
+
+        /// <summary>Slot <paramref name="no"/> was emptied, or removed (later slots move down one).</summary>
+        public static void SlotCleared(int no) { BySlot.Remove(no); }
+
+        public static void SlotRemoved(int no)
+        {
+            var moved = BySlot.Where(kv => kv.Key > no).OrderBy(kv => kv.Key).ToList();
+            BySlot.Remove(no);
+            foreach (var kv in moved) { BySlot.Remove(kv.Key); BySlot[kv.Key - 1] = kv.Value; }
+        }
         private static Camera _camera;
 
         /// <summary>Studio's own near clip (0.1), read from the camera before the theme changes it.</summary>
@@ -173,16 +201,18 @@ namespace HS2StudioTheme
         public static void Clear()
         {
             ByCamera.Clear();
+            BySlot.Clear();
             _free = -1f;
         }
 
         /// <summary>"free=0.5;12=1.2;30=0.05": camera object keys as saved in the scene.</summary>
         public static string Serialize()
         {
-            if (_free <= 0f && ByCamera.Count == 0) return null;
+            if (_free <= 0f && ByCamera.Count == 0 && BySlot.Count == 0) return null;
             var parts = new List<string>();
             if (_free > 0f) parts.Add("free=" + _free.ToString("R", CultureInfo.InvariantCulture));
             parts.AddRange(ByCamera.Select(kv => kv.Key + "=" + kv.Value.ToString("R", CultureInfo.InvariantCulture)));
+            parts.AddRange(BySlot.Select(kv => "s" + kv.Key + "=" + kv.Value.ToString("R", CultureInfo.InvariantCulture)));
             return string.Join(";", parts.ToArray());
         }
 
@@ -199,6 +229,7 @@ namespace HS2StudioTheme
                 var k = part.Substring(0, eq);
                 int key;
                 if (k == "free") { if (withFree) _free = Mathf.Clamp(v, Min, Max); }
+                else if (k.Length > 1 && k[0] == 's' && int.TryParse(k.Substring(1), out key)) { if (withFree) BySlot[key] = v; }   // a slot's view (scene load only)
                 else if (int.TryParse(k, out key))
                 {
                     var now = remap(key);

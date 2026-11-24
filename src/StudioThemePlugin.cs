@@ -20,7 +20,7 @@ namespace HS2StudioTheme
     {
         public const string GUID = "com.albatrosslabs.hs2.studiotheme";
         public const string PluginName = "Studio Theme";
-        public const string Version = "0.15.5";
+        public const string Version = "0.17.3";
 
         internal static StudioThemePlugin Instance;
         internal static ManualLogSource Log;
@@ -126,6 +126,26 @@ namespace HS2StudioTheme
                 try { FkColours.ApplyIfFactory(); }
                 catch (System.Exception e) { Log.LogWarning("Couldn't set FK colours: " + e.Message); }
             }
+        }
+
+        private float _nextHealthCheck;
+        private int _heals;
+
+        /// <summary>
+        /// Some set-ups destroy the theme's generated pictures after Studio starts (a texture clean-up in
+        /// another plugin, it seems), which leaves the glass flat white until the theme is turned off and on.
+        /// Every two seconds: if any of them is gone, make them again and re-apply, as the toggle does.
+        /// </summary>
+        private void Update()
+        {
+            if (_root == null || !Enabled.Value || Time.unscaledTime < _nextHealthCheck) return;
+            _nextHealthCheck = Time.unscaledTime + 2f;
+            if (!Sprites.AnyDestroyed()) return;
+            if (_heals >= 10) return;   // something keeps destroying them: don't loop forever
+            _heals++;
+            Log.LogWarning("Something destroyed the theme's pictures (" + _heals + "): making them again and re-applying");
+            Sprites.DropDestroyed();
+            Reapply();
         }
 
         private void Reapply()

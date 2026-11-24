@@ -39,6 +39,8 @@ namespace HS2StudioTheme
             Traverse.Create(data).Method("Copy", new[] { empty.GetType() }).GetValue(empty);
             Traverse.Create(data).Method("ClearExtended").GetValue();
             SyncStudio(index, data);
+            CameraClip.SlotCleared(index);
+            CameraPresets.SlotCleared(index);
             return true;
         }
 
@@ -57,6 +59,8 @@ namespace HS2StudioTheme
                 Traverse.Create(list[j]).Method("Copy", new[] { dataType }).GetValue(list[j + 1]);
                 SyncStudio(j, list[j]);
             }
+            CameraClip.SlotRemoved(index);
+            CameraPresets.SlotRemoved(index);
             int last = list.Count - 1;
             if (list.Count > 10) Traverse.Create(p).Method("DelCameraSlot", new[] { dataType }).GetValue(list[last]);
             else Clear(last);

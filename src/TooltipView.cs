@@ -47,6 +47,39 @@ namespace HS2StudioTheme
 
         private static readonly Vector3[] Corners = new Vector3[4];
 
+        /// <summary>
+        /// A list row's full name: beside the list (right of it, or left near the screen's edge), level with
+        /// the row, so it never covers the names above and below.
+        /// </summary>
+        public static void ShowBeside(RectTransform target, string text)
+        {
+            var canvas = target.GetComponentInParent<Canvas>();
+            if (canvas == null) return;
+            canvas = canvas.rootCanvas;
+            Ensure(canvas.transform);
+
+            _target = target;
+            _text.text = text;
+            float w = Mathf.Ceil(_text.preferredWidth) + 16f;
+            _rt.sizeDelta = new Vector2(w, 22f);
+
+            var canvasRt = (RectTransform)canvas.transform;
+            var list = target.GetComponentInParent<ScrollRect>();
+            var edge = list != null ? (RectTransform)list.transform : target;
+            edge.GetWorldCorners(Corners);
+            float right = canvasRt.InverseTransformPoint(Corners[2]).x, left = canvasRt.InverseTransformPoint(Corners[0]).x;
+            target.GetWorldCorners(Corners);
+            float y = canvasRt.InverseTransformPoint((Corners[0] + Corners[1]) / 2f).y;
+            var area = canvasRt.rect;
+
+            bool toRight = right + 8f + w <= area.xMax - 4f;
+            _rt.pivot = new Vector2(toRight ? 0f : 1f, 0.5f);
+            _rt.localPosition = new Vector2(toRight ? right + 8f : left - 8f, Mathf.Clamp(y, area.yMin + 12f, area.yMax - 12f));
+
+            _go.transform.SetAsLastSibling();
+            _go.SetActive(true);
+        }
+
         private static bool ButtonBelow(RectTransform target)
         {
             var parent = target.parent;
@@ -91,11 +124,20 @@ namespace HS2StudioTheme
             _rt = (RectTransform)_go.transform;
             _rt.anchorMin = _rt.anchorMax = new Vector2(0.5f, 0.5f);
 
+            // Always drawn on top, whatever canvases the panels below have of their own.
+            var own = _go.AddComponent<Canvas>();
+            own.overrideSorting = true;
+            own.sortingOrder = 32000;
+
+            // A lighter, solid capsule with a hairline, so it reads clearly over the dark glass.
             var bg = _go.AddComponent<Image>();
             bg.sprite = Sprites.Field;
             bg.type = Image.Type.Sliced;
-            bg.color = new Color(0.08f, 0.08f, 0.09f, 0.96f);
+            bg.color = new Color(0.24f, 0.24f, 0.26f, 1f);
             bg.raycastTarget = false;
+            var outline = _go.AddComponent<Outline>();
+            outline.effectColor = new Color(0f, 0f, 0f, 0.5f);
+            outline.effectDistance = new Vector2(1f, -1f);
 
             var textGo = new GameObject(ThemedButton.OwnPrefix + "Tooltip Text", typeof(RectTransform));
             textGo.layer = _go.layer;

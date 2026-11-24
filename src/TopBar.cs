@@ -262,6 +262,21 @@ namespace HS2StudioTheme
             return i == 0 || string.IsNullOrEmpty(t) || t == "-" ? "Free camera" : t;
         }
 
+        private bool _ddWarned;
+
+        /// <summary>Studio's own camera list must never open (the theme's menu stands in for it): close it if it does.</summary>
+        private void KeepDropdownHidden()
+        {
+            if (_dropdown == null) return;
+            var cg = _dropdown.GetComponent<CanvasGroup>();
+            if (cg != null && (cg.blocksRaycasts || cg.alpha > 0f)) { cg.alpha = 0f; cg.blocksRaycasts = false; cg.interactable = false; }
+            if (_dropdown.IsExpanded)
+            {
+                _dropdown.Hide();
+                if (!_ddWarned) { _ddWarned = true; StudioThemePlugin.Log.LogDebug("Studio's camera dropdown opened under the theme's button: closed it"); }
+            }
+        }
+
         private void UpdateSwitchLabel()
         {
             if (_switchLabel == null || _dropdown == null) return;
@@ -299,9 +314,21 @@ namespace HS2StudioTheme
                 }
             }
 
+            // The camera in use's Graphics preset, loaded whenever it's switched to.
+            if (CameraPresets.Available)
+            {
+                items.Add(GlassMenu.Item.Sep());
+                items.Add(new GlassMenu.Item
+                {
+                    Label = CameraPresets.CurrentTitle,
+                    Right = PresetMenu.Short(CameraPresets.ForCurrent) + "  \u203A",
+                    Act = () => OpenPresetList(CameraPresets.ForCurrent, CameraPresets.SetForCurrent, true, anchor),
+                });
+            }
+
             // The camera in use: how close to it things are still drawn (saved with the scene, per camera).
             // With MoarCamz it's in the camera settings card instead, under FOV.
-            if (_moarCamz != null) { ShowUnderBar(items, 220f, true, anchor); return; }
+            if (_moarCamz != null) { ShowUnderBar(items, 240f, true, anchor); return; }
             items.Add(GlassMenu.Item.Sep());
             items.Add(new GlassMenu.Item
             {
@@ -314,7 +341,7 @@ namespace HS2StudioTheme
             if (CameraClip.IsCustom)
                 items.Add(new GlassMenu.Item { Label = "Reset culling distance", Right = CameraClip.Format(CameraClip.Default), Act = CameraClip.Reset });
 
-            ShowUnderBar(items, 220f, true, anchor);
+            ShowUnderBar(items, 240f, true, anchor);
         }
 
         /// <summary>
@@ -364,7 +391,27 @@ namespace HS2StudioTheme
                     },
                 });
             }
+            if (CameraPresets.Available)
+            {
+                int index = slot.Number - 1;
+                items.Add(GlassMenu.Item.Sep());
+                items.Add(new GlassMenu.Item
+                {
+                    Label = "Graphics preset",
+                    Right = PresetMenu.Short(CameraPresets.ForSlot(index)) + "  \u203A",
+                    Act = () => OpenPresetList(CameraPresets.ForSlot(index), name => CameraPresets.SetForSlot(index, name), false, (RectTransform)slot.transform),
+                });
+            }
             ShowUnderBar(items, 240f, false, (RectTransform)slot.transform);
+        }
+
+        /// <summary>
+        /// Graphics' presets to pick from (the one loaded now is marked), for a camera or a view: switching to it
+        /// loads the preset. Default is Graphics' default look for Studio.
+        /// </summary>
+        private void OpenPresetList(string current, System.Action<string> set, bool alignRight, RectTransform anchor)
+        {
+            ShowUnderBar(PresetMenu.Items(current, set), 260f, alignRight, anchor);
         }
 
         /// <summary>The workspace's own "new camera" button.</summary>
@@ -400,6 +447,7 @@ namespace HS2StudioTheme
             }
             Centre();
             CameraClip.Apply();
+            try { CameraPresets.CameraChanged(); } catch (System.Exception) { }
             try { if (ExitDialog.active) ExitDialogTheme.StyleAll(); } catch (System.Exception) { }   // made when asked for
         }
 
@@ -455,6 +503,7 @@ namespace HS2StudioTheme
 
             UpdateSlots();
             UpdateSwitchLabel();
+            KeepDropdownHidden();
             SceneNames.Apply();   // names given from the right-click menu, if Studio rewrote a row
 
             // MoarCamz's scrolling strip, or Studio's own slots.
@@ -623,7 +672,7 @@ namespace HS2StudioTheme
             _buttons.Clear();
             _undo.Run();
             CameraClip.Restore();
-            GlassMenu.CloseOpen();
+            GlassMenu.CloseOpen("the camera bar was removed");
             if (_glass != null) DestroyImmediate(_glass);
             if (_rt != null) _rt.anchoredPosition = _origPos;
             Destroy(this);

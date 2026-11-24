@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* Same family as the Studio Browser / Camera Routes / Camera Sweep images: navy, faint grid,
+     cyan + pink glows, gradient word + neon plate, pill chips, bunny on the right.
+     The UI pieces are Studio Theme's own panels, redrawn in HTML so they stay crisp. */
+  :root {
+    --bg: #0a0d18; --border: rgba(255,255,255,.10);
+    --text: #e8ecf8; --muted: #8b95b5; --cyan: #22d3ee; --pink: #f472b6; --neon: #6ee7b7;
+    --blue: #0a84ff; --glass: rgba(28,30,38,.78); --glassline: rgba(255,255,255,.14); --red: #ff453a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: transparent; font-family: 'Inter', sans-serif; }
+  .stage { position: relative; overflow: hidden; background: var(--bg); }
+  .grid { position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 40px 40px; mask-image: linear-gradient(90deg, rgba(0,0,0,.9), rgba(0,0,0,.25)); }
+  .glow { position: absolute; border-radius: 50%; filter: blur(60px); }
+  .glow.c { background: rgba(34,211,238,.20); }
+  .glow.p { background: rgba(244,114,182,.36); }
+  .glow.b { background: rgba(10,132,255,.18); }
+
+  /* wordmark */
+  .brand { position: absolute; display: flex; flex-direction: column; z-index: 5; }
+  .wordmark { display: flex; align-items: center; gap: 18px; }
+  .studio { font-family: 'Poppins', sans-serif; font-weight: 800; letter-spacing: -1px; line-height: 1;
+    background: linear-gradient(90deg, var(--cyan), #a78bfa 55%, var(--pink)); -webkit-background-clip: text; color: transparent; }
+  .plate { display: flex; align-items: center; border: 2px solid var(--neon); border-radius: 14px;
+    background: rgba(110,231,183,.08); box-shadow: 0 0 22px rgba(110,231,183,.35), inset 0 0 18px rgba(110,231,183,.12); }
+  .theme { font-family: 'Poppins', sans-serif; font-weight: 700; color: var(--neon); letter-spacing: 1px; line-height: 1;
+    text-shadow: 0 0 14px rgba(110,231,183,.55); }
+  .underline { height: 4px; border-radius: 2px; margin-top: 16px; background: linear-gradient(90deg, var(--cyan), var(--pink)); }
+  .tagline { color: var(--text); margin-top: 16px; line-height: 1.35; }
+  .tagline b { color: #fff; font-weight: 700; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .chip { font-size: 15px; font-weight: 600; color: var(--text); padding: 6px 13px; border-radius: 999px;
+    border: 1px solid var(--border); background: rgba(255,255,255,.04); }
+  .chip.on { color: #0a0d18; background: var(--neon); border-color: var(--neon); }
+  .chip.pk { color: #ffd6ea; border-color: rgba(244,114,182,.6); background: rgba(244,114,182,.12); }
+  .by { position: absolute; font-size: 13px; letter-spacing: 2.5px; color: var(--muted); font-weight: 600; z-index: 5; }
+  .by b { color: var(--text); }
+
+  /* bunny */
+  .girl { position: absolute; z-index: 2; filter: drop-shadow(0 0 30px rgba(244,114,182,.42)); }
+  .girl img { display: block; width: 100%; filter: brightness(1.16) saturate(1.05);
+    -webkit-mask-image: linear-gradient(to bottom, #000 80%, transparent 100%); mask-image: linear-gradient(to bottom, #000 80%, transparent 100%); }
+
+  /* glass, as Studio Theme draws it */
+  .glass { position: absolute; background: var(--glass); border: 1px solid var(--glassline); border-radius: 14px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,.55), 0 22px 60px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter: blur(18px); color: #f2f3f7; z-index: 4; }
+  .glass::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+    background: linear-gradient(125deg, rgba(255,255,255,.09), transparent 38%); }
+
+  .ui { position: absolute; z-index: 4; }
+  .rail { left: 0; top: 0; width: 78px; padding: 8px 7px; display: flex; flex-direction: column; gap: 6px; }
+  .rail .tab { height: 62px; border-radius: 11px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px;
+    font-size: 12px; font-weight: 500; color: #e9eaf0; }
+  .rail .tab.on { background: var(--blue); color: #fff; box-shadow: 0 0 18px rgba(10,132,255,.45); }
+  .list { top: 0; padding: 10px 8px; }
+  .list .row { height: 30px; display: flex; align-items: center; padding: 0 10px; border-radius: 8px; font-size: 13.5px; color: #eceef4; white-space: nowrap; }
+  .list .row.on { background: var(--blue); color: #fff; }
+  .list .scroll { position: absolute; right: 6px; top: 12px; bottom: 12px; width: 4px; border-radius: 2px; background: rgba(255,255,255,.12); }
+  .list .scroll i { display: block; height: 55%; border-radius: 2px; background: rgba(255,255,255,.4); }
+
+  /* right-click character menu */
+  .menu { padding: 6px; width: 236px; }
+  .menu .head { display: flex; align-items: center; gap: 8px; padding: 6px 9px 8px; font-size: 12.5px; font-weight: 700; color: #fff; }
+  .menu .head .dot { width: 20px; height: 20px; border-radius: 50%; background: linear-gradient(135deg, var(--pink), #a78bfa); display: grid; place-items: center; }
+  .menu .item { height: 27px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border-radius: 7px; font-size: 13px; color: #eceef4; white-space: nowrap; }
+  .menu .item span { color: #8e93a3; font-size: 12px; }
+  .menu .item.hot { background: var(--blue); color: #fff; }
+  .menu .item.hot span { color: rgba(255,255,255,.8); }
+  .menu .item.del { color: var(--red); }
+  .menu .sep { height: 1px; margin: 5px 8px; background: rgba(255,255,255,.12); }
+  .cursor { position: absolute; z-index: 6; filter: drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+
+  /* workspace window */
+  .ws { padding: 10px 10px 12px; }
+  .ws .title { display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 700; padding: 0 4px 9px; }
+  .ws .title span { color: #8e93a3; font-weight: 500; font-size: 12px; }
+  .ws .r { height: 27px; display: flex; align-items: center; gap: 7px; padding: 0 8px; border-radius: 7px; font-size: 13px; color: #eceef4; }
+  .ws .r.on { background: var(--blue); color: #fff; }
+  .ws .r.k1 { padding-left: 24px; }
+  .ws .search { margin-top: 9px; height: 26px; border-radius: 7px; background: rgba(255,255,255,.08); color: #8e93a3; font-size: 12.5px; display: flex; align-items: center; padding: 0 10px; }
+  .ws .tools { display: flex; gap: 6px; margin-top: 10px; justify-content: flex-end; }
+  .ws .tools i { width: 28px; height: 26px; border-radius: 7px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.08); display: grid; place-items: center; }
+  .ws .tools i.del { background: rgba(255,69,58,.18); border-color: rgba(255,69,58,.35); margin-right: auto; }
+
+  /* README banner, 1600 x 400 */
+  .banner { width: 1600px; height: 400px; }
+  .banner .glow.c { width: 520px; height: 300px; left: -120px; top: -80px; }
+  .banner .glow.b { width: 520px; height: 300px; left: 700px; top: 80px; }
+  .banner .glow.p { width: 440px; height: 440px; right: 0; top: 0; }
+  .banner .brand { left: 64px; top: 48px; width: 680px; }
+  .banner .studio { font-size: 80px; }
+  .banner .plate { height: 76px; padding: 0 20px; }
+  .banner .theme { font-size: 54px; }
+  .banner .underline { width: 360px; }
+  .banner .tagline { font-size: 21px; }
+  .banner .by { left: 64px; bottom: 26px; }
+  .banner .girl { width: 300px; right: 40px; top: -6px; }
+  .banner .ui.panel { left: 780px; top: 52px; transform: perspective(1400px) rotateY(-12deg) rotateZ(1deg); transform-origin: left center; }
+  .banner .ui.menuwrap { left: 1060px; top: 70px; }
+
+  /* Social preview, 1280 x 640 */
+  .social { width: 1280px; height: 640px; }
+  .social .glow.c { width: 560px; height: 380px; left: -140px; top: -100px; }
+  .social .glow.b { width: 520px; height: 340px; left: 180px; top: 380px; }
+  .social .glow.p { width: 560px; height: 620px; right: -40px; top: 40px; }
+  .social .brand { left: 64px; top: 58px; width: 700px; }
+  .social .studio { font-size: 100px; }
+  .social .plate { height: 96px; padding: 0 24px; }
+  .social .theme { font-size: 70px; }
+  .social .underline { width: 440px; }
+  .social .tagline { font-size: 25px; max-width: 640px; }
+  .social .chips { max-width: 660px; }
+  .social .by { left: 64px; bottom: 30px; }
+  .social .girl { width: 400px; right: 30px; top: 10px; }
+  .social .ui.panel { left: 64px; top: 404px; transform: scale(.6); transform-origin: left top; }
+  .social .ui.menuwrap { left: 640px; top: 334px; transform: scale(.92); transform-origin: left top; }
+
+  /* Social post, 3:2, 1200 x 800 */
+  .social32 { width: 1200px; height: 800px; }
+  .social32 .glow.c { width: 600px; height: 420px; left: -160px; top: -110px; }
+  .social32 .glow.b { width: 560px; height: 380px; left: 140px; top: 470px; }
+  .social32 .glow.p { width: 620px; height: 760px; right: -70px; top: 50px; }
+  .social32 .brand { left: 64px; top: 66px; width: 660px; }
+  .social32 .studio { font-size: 96px; }
+  .social32 .plate { height: 92px; padding: 0 22px; }
+  .social32 .theme { font-size: 66px; }
+  .social32 .underline { width: 420px; }
+  .social32 .tagline { font-size: 26px; max-width: 600px; }
+  .social32 .chips { max-width: 640px; }
+  .social32 .by { left: 64px; bottom: 30px; }
+  .social32 .girl { width: 470px; right: 20px; top: 30px; }
+  .social32 .ui.panel { left: 64px; top: 452px; transform: scale(.78); transform-origin: left top; }
+  .social32 .ui.menuwrap { left: 560px; top: 390px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const layout = new URLSearchParams(location.search).get('layout') || 'banner';
+
+// Icons, drawn like the theme's own (thin white strokes)
+const I = {
+  add: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9.2"/><path d="M12 7.5v9M7.5 12h9" stroke-linecap="round"/></svg>`,
+  anim: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="14.5" cy="4.3" r="1.8" fill="currentColor" stroke="none"/><path d="M8 9.5l3.5-2.2 3 1.4 1.8 3 3 .8"/><path d="M11.5 7.3l-1.3 5.4 3.6 2.8 .9 5"/><path d="M10.2 12.7l-2.4 3.6-3.8.6"/></svg>`,
+  sound: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M9 18V5.5l11-2.5v12.5"/><ellipse cx="6.6" cy="18" rx="2.6" ry="2.2"/><ellipse cx="17.6" cy="15.5" rx="2.6" ry="2.2"/></svg>`,
+  sys: `<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.9 1.9M16.6 16.6l1.9 1.9M5.5 18.5l1.9-1.9M16.6 7.4l1.9-1.9" stroke-linecap="round"/><circle cx="12" cy="12" r="6.4"/></svg>`,
+  chev: `<svg width="9" height="9" viewBox="0 0 10 10"><path d="M3 1.5L6.6 5 3 8.5" stroke="#9aa0b0" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
+  eye: `<svg width="14" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1 5c2-3 4-4 7-4s5 1 7 4c-2 3-4 4-7 4S3 8 1 5z"/><circle cx="8" cy="5" r="1.8"/></svg>`,
+  folder: `<svg width="15" height="12" viewBox="0 0 16 12" fill="none" stroke="#ffd60a" stroke-width="1.3"><path d="M1 2.2c0-.7.5-1.2 1.2-1.2h3.4l1.4 1.6h6.8c.7 0 1.2.5 1.2 1.2v6.8c0 .7-.5 1.2-1.2 1.2H2.2c-.7 0-1.2-.5-1.2-1.2z"/></svg>`,
+  person: `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="6" cy="3.6" r="2.3"/><path d="M1.6 11c.4-2.6 2.2-4 4.4-4s4 1.4 4.4 4"/></svg>`,
+  light: `<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#ffd60a" stroke-width="1.3"><circle cx="6" cy="5" r="3"/><path d="M4.5 10.5h3"/></svg>`,
+  cursor: `<svg width="22" height="28" viewBox="0 0 22 28"><path d="M2 2v20l5.2-4.8 3.6 8 3.4-1.5-3.6-7.9H18z" fill="#fff" stroke="#111" stroke-width="1.4" stroke-linejoin="round"/></svg>`,
+  t: (d) => `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#e6e8ee" stroke-width="1.2" stroke-linecap="round">${d}</svg>`,
+};
+
+const rail = `<div class="glass rail">
+  <div class="tab">${I.add}Add</div><div class="tab on">${I.anim}Anim</div>
+  <div class="tab">${I.sound}Sound</div><div class="tab">${I.sys}System</div></div>`;
+const list = (left, w) => `<div class="glass list" style="left:${left}px;width:${w}px">
+  ${['Current State', 'Kinematics', 'Animations', 'Voice', 'Outfit', 'Joint Adjust…', 'Face'].map((r, i) => `<div class="row ${i === 2 ? 'on' : ''}">${r}</div>`).join('')}
+  <div class="scroll"><i></i></div></div>`;
+const panel = `<div class="ui panel">${rail}${list(88, 170)}</div>`;
+
+const ws = (left, top, w) => `<div class="glass ws" style="left:${left}px;top:${top}px;width:${w}px">
+  <div class="title">Workspace<span>16 objects</span></div>
+  <div class="r">${I.chev}${I.eye}${I.folder}Scene</div>
+  <div class="r on">${I.chev}${I.eye}${I.person}Bunny</div>
+  <div class="r">${I.chev}${I.eye}${I.light}Key light</div>
+  <div class="search">Search…</div>
+  <div class="tools"><i class="del">${I.t('<path d="M3 4h8M5.5 4V2.6h3V4M4 4l.6 7.4h4.8L10 4" stroke="#ff453a"/>')}</i>
+    <i>${I.t('<rect x="2.5" y="2.5" width="6.5" height="6.5" rx="1.2"/><rect x="5" y="5" width="6.5" height="6.5" rx="1.2"/>')}</i>
+    <i>${I.t('<path d="M5.6 8.4l2.8-2.8M6 3.8l1-1a2.3 2.3 0 013.2 3.2l-1 1M8 10.2l-1 1a2.3 2.3 0 01-3.2-3.2l1-1"/>')}</i>
+    <i>${I.t('<path d="M2 4.2h4l1.2 1.4H12v5.6H2z"/><path d="M7 7.2v2.6M5.7 8.5h2.6"/>')}</i></div></div>`;
+
+const menu = `<div class="glass menu">
+  <div class="head"><div class="dot">${I.person.replace('currentColor', '#fff')}</div>Bunny</div>
+  <div class="item">Focus camera<span>F</span></div>
+  <div class="item">Rename…</div>
+  <div class="sep"></div>
+  <div class="item">Animations…</div>
+  <div class="item">Outfit…</div>
+  <div class="item">Clothing<span>›</span></div>
+  <div class="item hot">Swap character…</div>
+  <div class="sep"></div>
+  <div class="item">Duplicate<span>Ctrl+D</span></div>
+  <div class="item del">Delete<span>Del</span></div></div>`;
+
+const chips = `<div class="chips">
+  <div class="chip on">Glass panels</div><div class="chip">System font</div><div class="chip">Crisp icons</div>
+  <div class="chip">Finder-style workspace</div><div class="chip">Toolbar folders</div>
+  <div class="chip pk">Right-click character menu</div></div>`;
+const brand = (tag) => `<div class="brand">
+  <div class="wordmark"><div class="studio">STUDIO</div><div class="plate"><div class="theme">THEME</div></div></div>
+  <div class="underline"></div><div class="tagline">${tag}</div>${chips}</div>`;
+const by = `<div class="by">HONEY SELECT 2 STUDIO PLUGINS · <b>ALBATROSS LABS</b></div>`;
+
+const B = layout === 'banner';
+// menu sits beside her, with the cursor at its top-left corner where the right-click landed
+const menuWrap = `<div class="ui menuwrap">${menu}<div class="cursor" style="left:-12px;top:-14px">${I.cursor}</div></div>`;
+const extra = B ? '' : `<div class="ui panel2" style="position:absolute;z-index:4;left:${layout === 'social' ? 230 : 290}px;top:${layout === 'social' ? 404 : 452}px;transform:scale(${layout === 'social' ? .6 : .78});transform-origin:left top">${ws(0, 0, 250)}</div>`;
+
+document.getElementById('root').innerHTML = `
+  <div class="stage ${layout}">
+    <div class="grid"></div><div class="glow c"></div><div class="glow b"></div><div class="glow p"></div>
+    ${brand(layout !== 'social32'
+      ? 'Studio’s dated menus, rebuilt as clean glass for<br><b>Honey Select 2 Studio</b>. Same buttons, same places.'
+      : 'Studio’s dated menus, rebuilt as clean glass for <b>Honey Select 2 Studio</b>. Same buttons in the same places, so there’s nothing to relearn.')}
+    <div class="girl"><img src="bunny-theme.png"></div>
+    ${panel}${extra}${menuWrap}
+    ${by}
+  </div>`;
+</script>
+</body>
+</html>

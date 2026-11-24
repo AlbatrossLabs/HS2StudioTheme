@@ -19,7 +19,7 @@ Set-Location (Split-Path -Parent $PSScriptRoot)
 
 $Repo      = 'AlbatrossLabs/HS2StudioTheme'
 $HS2Dir    = 'X:\HS2 RX15'
-$Installed = Join-Path $HS2Dir 'BepInEx\plugins\HS2StudioTheme\HS2StudioTheme.dll'
+$Installed = Join-Path $HS2Dir 'BepInEx\plugins\AlbatrossLabs\HS2StudioTheme\HS2StudioTheme.dll'
 $PluginCs  = 'src\StudioThemePlugin.cs'
 $Csproj    = 'HS2StudioTheme.csproj'
 $NotesFile = 'release-notes.md'

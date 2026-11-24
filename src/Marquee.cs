@@ -25,6 +25,12 @@ namespace HS2StudioTheme
         [System.NonSerialized] private bool _over, _scrolling;
         [System.NonSerialized] private int _phase;
         [System.NonSerialized] private int _baseSize, _stagger;
+
+        /// <summary>
+        /// May shrink a little before ending in "…". Off for list rows: a list reads better with every row
+        /// the same size, and a truncated row shows its whole name in a tooltip.
+        /// </summary>
+        [SerializeField] public bool AllowShrink = true;
         [System.NonSerialized] private bool _dirty = true;
         [System.NonSerialized] private Vector3 _lastMouse = new Vector3(-1f, -1f, 0f);
         private RectTransform _frame;
@@ -73,6 +79,9 @@ namespace HS2StudioTheme
         private void OnRectTransformDimensionsChange() { _dirty = true; }
 
         public void SetAlignment(TextAnchor a) { _align = a; _dirty = true; _frameW = -1f; }
+
+        /// <summary>The text doesn't fit and ends in "…".</summary>
+        public bool IsTruncated { get { return _over; } }
 
         public string FullText { get { return _full ?? (_text != null ? _text.text : null); } }
 
@@ -124,7 +133,7 @@ namespace HS2StudioTheme
             if (_text.fontSize != _baseSize) _text.fontSize = _baseSize;
             _fullW = Width(_full);
             _over = _frameW > 1f && _fullW > _frameW + 0.5f;
-            if (_over)
+            if (_over && AllowShrink)
             {
                 // A little smaller first ("Character Light", "Joint Adjustment" fit whole); "…" only past that.
                 int min = Mathf.Max(8, Mathf.FloorToInt(_baseSize * MinScale));
